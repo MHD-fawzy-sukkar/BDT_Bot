@@ -14,12 +14,21 @@ export interface VaultSyncResult {
   failedCount: number;
 }
 
+export interface VaultSyncProgressUpdate {
+  transferred: number;
+  total: number;
+  remaining: number;
+  percent: number;
+  progressBar: string;
+}
+
 export class VaultSyncRunner {
   static async runBatch(
     api: Api,
     env: Env,
     contentAdmin: ContentAdminService,
-    batchSize: number = 10
+    batchSize: number = 10,
+    onProgress?: (progress: VaultSyncProgressUpdate) => Promise<void>
   ): Promise<VaultSyncResult> {
     const storageChannelId = env.STORAGE_CHANNEL_ID?.trim();
     if (!storageChannelId) {
@@ -40,7 +49,7 @@ export class VaultSyncRunner {
         totalTransferred: allContents.length,
         remaining: 0,
         percent: 100,
-        progressBar: "🟩".repeat(10),
+        progressBar: "🟩".repeat(5),
         isComplete: true,
         failedCount: 0,
       };
@@ -50,7 +59,8 @@ export class VaultSyncRunner {
     let transferredInThisStep = 0;
     let failedCount = 0;
 
-    for (const item of currentBatch) {
+    for (let i = 0; i < currentBatch.length; i++) {
+      const item = currentBatch[i];
       try {
         let newMsgId: number | null = null;
 
@@ -131,6 +141,30 @@ export class VaultSyncRunner {
           failedCount++;
         }
 
+        // تحديث حي للمستخدم على واجهة تيلغرام كل 3 ملفات أو عند نهاية الدفعة
+        if (onProgress && ((i + 1) % 3 === 0 || i === currentBatch.length - 1)) {
+          const curTransferred = alreadyInVault + transferredInThisStep;
+          const curRemaining = allContents.length - curTransferred;
+          const curPercent = Math.round(
+            (curTransferred / allContents.length) * 100
+          );
+          const curBlocks = Math.round((curPercent / 100) * 5);
+          const curProgressBar =
+            "🟩".repeat(curBlocks) + "⬜".repeat(5 - curBlocks);
+
+          try {
+            await onProgress({
+              transferred: curTransferred,
+              total: allContents.length,
+              remaining: curRemaining,
+              percent: curPercent,
+              progressBar: curProgressBar,
+            });
+          } catch {
+            // تجاهل أخطاء التعديل اللحظي إن حدثت
+          }
+        }
+
         // فاصل زمني بسيط (250ms) احتراماً لقيود معدل الإرسال في تيلغرام (Rate Limiting)
         await new Promise((resolve) => setTimeout(resolve, 250));
       } catch (itemErr) {
@@ -143,9 +177,10 @@ export class VaultSyncRunner {
     const remaining = allContents.length - totalTransferred;
     const percent = Math.round((totalTransferred / allContents.length) * 100);
 
-    const filledBlocks = Math.round((percent / 100) * 10);
+    // شريط تقدم مقتضب وجميل (5 خانات) يناسب شاشات الهواتف دون تشويه السطور
+    const filledBlocks = Math.round((percent / 100) * 5);
     const progressBar =
-      "🟩".repeat(filledBlocks) + "⬜".repeat(10 - filledBlocks);
+      "🟩".repeat(filledBlocks) + "⬜".repeat(5 - filledBlocks);
 
     // إرسال تقرير الدفعة في توبيك السجلات
     if (transferredInThisStep > 0) {
@@ -153,7 +188,7 @@ export class VaultSyncRunner {
         api,
         env,
         "مزامنة دفعة أرشيف",
-        `📦 <b>تم نقل دفعة جديدة بنجاح (${transferredInThisStep} ملف):</b>\n\n` +
+        `📦 <b>تم نقل وتأمين دفعة جديدة (${transferredInThisStep} ملف):</b>\n\n` +
           `• شريط الإنجاز: [${progressBar}] <b>${percent}%</b>\n` +
           `• المنقول والمؤمن في المستودع: <b>${totalTransferred} / ${allContents.length}</b>\n` +
           `• المتبقي: <b>${remaining}</b> ملف`

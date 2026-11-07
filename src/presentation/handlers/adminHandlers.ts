@@ -288,11 +288,11 @@ protectedAdmin.command("sync_vault", async (ctx) => {
     return;
   }
 
-  const filledBlocks = Math.round((percent / 100) * 10);
-  const progressBar = "🟩".repeat(filledBlocks) + "⬜".repeat(10 - filledBlocks);
+  const filledBlocks = Math.round((percent / 100) * 5);
+  const progressBar = "🟩".repeat(filledBlocks) + "⬜".repeat(5 - filledBlocks);
 
   const kb = new InlineKeyboard()
-    .text(`🚀 نقل الدفعة التالية (10 ملفات)`, "a:vault_start:0")
+    .text(`🚀 بدء المزامنة التلقائية للأرشيف`, "a:vault_start:0")
     .row();
 
   await ctx.reply(
@@ -303,8 +303,8 @@ protectedAdmin.command("sync_vault", async (ctx) => {
       `• مؤمنة في المستودع مسبقاً: <b>${alreadyInVault}</b> ✅ <i>(لن تُعاد أبداً)</i>\n` +
       `• المتبقي لنقلها: <b>${pending.length}</b> ⏳\n` +
       `• قناة المستودع الهدف: <code>${storageChannelId}</code>\n\n` +
-      `💡 <i>تتم المعالجة على دفعات فائقة السرعة مع تحديث فوري ومراقبة حية في توبيك السجلات.</i>\n\n` +
-      `اضغط الزر بالأسفل للمتابعة 👇`,
+      `💡 <i>تتم المعالجة مع تحديث مباشر لشريط التقارير الحية في توبيك السجلات.</i>\n\n` +
+      `اضغط الزر بالأسفل للبدء 👇`,
     { parse_mode: "HTML", reply_markup: kb }
   );
 });
@@ -319,13 +319,13 @@ protectedAdmin.callbackQuery(/^a:vault_start:(\d+)$/, async (ctx) => {
     return;
   }
 
-  // 1. تحديث فوري فوري للزر والشاشة لمنع إحساس التعليق وتأكيد استجابة النقرة
-  await ctx.answerCallbackQuery({ text: "⏳ جاري النقل والتحويل..." });
+  // 1. تحديث فوري للشاشة لمنع أي إحساس بالتعليق
+  await ctx.answerCallbackQuery({ text: "⏳ جاري نقل وتأمين الأرشيف..." });
   await safeEditOrReply(
     ctx,
-    `⏳ <b>جاري نقل وتأمين دفعة جديدة...</b>\n\n` +
-      `يرجى الانتظار ثوانٍ معدودة، جاري نقل الملفات وتحديث السجلات في قاعدة البيانات...`,
-    new InlineKeyboard().text("⏳ جاري النقل والتحويل...", "a:noop"),
+    `⏳ <b>بدأت المزامنة التلقائية للأرشيف...</b>\n\n` +
+      `يرجى الانتظار، جاري النقل والتحديث المباشر لشريط الإنجاز...`,
+    new InlineKeyboard().text("⏳ جاري المزامنة الحية...", "a:noop"),
     true
   );
 
@@ -333,7 +333,19 @@ protectedAdmin.callbackQuery(/^a:vault_start:(\d+)$/, async (ctx) => {
     ctx.api,
     ctx.env,
     ctx.services.contentAdmin,
-    10
+    15,
+    async (progress) => {
+      await safeEditOrReply(
+        ctx,
+        `⏳ <b>جاري نقل وتأمين الأرشيف في المستودع...</b>\n\n` +
+          `[${progress.progressBar}] <b>${progress.percent}%</b>\n\n` +
+          `• تم تأمين: <b>${progress.transferred} / ${progress.total}</b> ملف\n` +
+          `• المتبقي: <b>${progress.remaining}</b> ملف\n\n` +
+          `<i>جاري المزامنة الحية...</i>`,
+        new InlineKeyboard().text("⏳ جاري المزامنة الحية...", "a:noop"),
+        true
+      );
+    }
   );
 
   if (result.isComplete) {
@@ -346,10 +358,10 @@ protectedAdmin.callbackQuery(/^a:vault_start:(\d+)$/, async (ctx) => {
     return;
   }
 
-  const nextBatchCount = Math.min(result.remaining, 10);
+  const nextBatchCount = Math.min(result.remaining, 15);
   const nextKb = new InlineKeyboard()
     .text(
-      `🚀 نقل الدفعة التالية (${nextBatchCount} ملف)`,
+      `🚀 استمرار المزامنة (${nextBatchCount} ملف)`,
       "a:vault_start:0"
     )
     .row();

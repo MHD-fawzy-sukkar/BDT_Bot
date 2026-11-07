@@ -71,11 +71,12 @@ export default {
         const contentRepo = new D1NodeContentRepository(env.DB);
         const contentAdmin = new ContentAdminService(nodeRepo, contentRepo);
 
+        const batchSize = Number(url.searchParams.get("batch")) || 15;
         const result = await VaultSyncRunner.runBatch(
           bot.api,
           env,
           contentAdmin,
-          10
+          batchSize
         );
 
         return new Response(JSON.stringify(result, null, 2), {
