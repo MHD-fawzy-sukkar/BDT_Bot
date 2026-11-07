@@ -42,7 +42,7 @@ export interface TreeSnapshot {
 // كاش في الذاكرة السريعة للـ Worker (يدوم طوال حياة الـ Isolate ويتحدث فوراً عند أي تعديل من الأدمن)
 let cachedSnapshot: TreeSnapshot | null = null;
 let pendingLoadPromise: Promise<TreeSnapshot> | null = null;
-const CACHE_TTL_MS = 30_000; // 30 ثانية كحد أقصى لضمان المزامنة السريعة بين كافة خوادم Cloudflare، أو يتحدث فوراً عند أي تعديل
+const CACHE_TTL_MS = 60_000; // دقيقة واحدة كحد أقصى أو يتحدث فوراً عند أي تعديل
 
 export class TreeMemoryCache {
   static invalidate(): void {

@@ -94,25 +94,27 @@ export function buildUserReplyKeyboard(view: MenuViewData): Keyboard {
 }
 
 /**
- * رسالة منسقة تظهر مسار التصفح الحالي وتوجيهات القسم
+ * رسالة مختصرة وخفيفة جداً بدون مسارات مكررة تماثل أسلوب البوت المرجعي
  */
 export function formatUserMenuText(view: MenuViewData): string {
   if (view.currentNode === null) {
-    return "🏠 <b>القائمة الرئيسية</b>\n\nاختر من القائمة بالأسفل ⬇️";
-  }
-
-  const lines: string[] = [];
-
-  if (view.breadcrumbText) {
-    lines.push(`📍 <b>المسار:</b> ${escapeHtml(view.breadcrumbText)}`);
+    return "🏠 أنت في القائمة الرئيسية";
   }
 
   if (view.currentNode.description) {
-    lines.push(`\n${escapeHtml(view.currentNode.description)}`);
+    return escapeHtml(view.currentNode.description);
   }
 
-  lines.push("\nاختر من القائمة ⬇️");
-  return lines.join("\n");
+  const cleanTag = view.currentNode.title
+    .trim()
+    .replace(/[^\p{L}\p{N}_]+/gu, "_")
+    .replace(/^_+|_+$/g, "");
+
+  if (cleanTag.length > 0) {
+    return `📂 قسم #${cleanTag} اختر من القائمة ⬇️`;
+  }
+
+  return "اختر من القائمة ⬇️";
 }
 
 export function escapeHtml(str: string): string {
