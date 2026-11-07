@@ -247,26 +247,34 @@ protectedAdmin.command("sync_vault", async (ctx) => {
   const pending = allContents.filter(
     (c) => c.sourceChatId !== storageChannelId
   );
+  const alreadyInVault = allContents.length - pending.length;
+  const percent = Math.round((alreadyInVault / allContents.length) * 100);
 
   if (pending.length === 0) {
     await ctx.reply(
-      `✅ <b>جميع ملفات البوت (${allContents.length} ملف) مؤمنة ومربوطة بالفعل داخل قناة المستودع الدائم!</b>`,
+      `✅ <b>جميع ملفات البوت (${allContents.length} ملف) مؤمنة ومربوطة بالفعل داخل قناة المستودع الدائم بنسبة 100%!</b>`,
       { parse_mode: "HTML" }
     );
     return;
   }
 
+  const filledBlocks = Math.round((percent / 100) * 10);
+  const progressBar = "🟩".repeat(filledBlocks) + "⬜".repeat(10 - filledBlocks);
+
   const kb = new InlineKeyboard()
-    .text(`🚀 بدء نقل الـ ${pending.length} ملف الآن`, "a:vault_start:0")
+    .text(`🚀 نقل الدفعة التالية (15 ملف)`, "a:vault_start:0")
     .row();
 
   await ctx.reply(
-    `📦 <b>نظام مزامنة وتأمين الملفات في قناة المستودع</b>\n\n` +
+    `📦 <b>نظام مزامنة وتأمين الملفات في قناة المستودع الدائم</b>\n\n` +
+      `📊 <b>الحالة الحالية للأرشيف:</b>\n` +
+      `[${progressBar}] <b>${percent}%</b>\n\n` +
       `• إجمالي الملفات في البوت: <b>${allContents.length}</b>\n` +
-      `• الملفات المتبقي نقلها للمستودع: <b>${pending.length}</b>\n` +
+      `• مؤمنة في المستودع مسبقاً: <b>${alreadyInVault}</b> ✅ <i>(لن تُعاد أبداً)</i>\n` +
+      `• المتبقي لنقلها: <b>${pending.length}</b> ⏳\n` +
       `• قناة المستودع الهدف: <code>${storageChannelId}</code>\n\n` +
-      `سيتم النقل على دفعات آمنة ومنظمة مع إرسال تقارير حية ومباشرة في توبيك السجلات لمراقبة التقدم لحظياً.\n\n` +
-      `اضغط الزر بالأسفل للبدء 👇`,
+      `💡 <i>تتم المعالجة على دفعات فائقة السرعة مع تحديث فوري ومراقبة حية في توبيك السجلات.</i>\n\n` +
+      `اضغط الزر بالأسفل للمتابعة 👇`,
     { parse_mode: "HTML", reply_markup: kb }
   );
 });
@@ -281,7 +289,15 @@ protectedAdmin.callbackQuery(/^a:vault_start:(\d+)$/, async (ctx) => {
     return;
   }
 
-  await ctx.answerCallbackQuery({ text: "⏳ جاري نقل الدفعة..." });
+  // 1. تحديث فوري فوري للزر والشاشة لمنع إحساس التعليق وتأكيد استجابة النقرة
+  await ctx.answerCallbackQuery({ text: "⏳ جاري النقل والتحويل..." });
+  await safeEditOrReply(
+    ctx,
+    `⏳ <b>جاري نقل وتأمين دفعة جديدة...</b>\n\n` +
+      `يرجى الانتظار ثوانٍ معدودة، جاري نقل الملفات وتحديث السجلات في قاعدة البيانات...`,
+    new InlineKeyboard().text("⏳ جاري النقل والتحويل...", "a:noop"),
+    true
+  );
 
   const allContents = await ctx.services.contentAdmin.getAllContents();
   const pending = allContents.filter(
@@ -300,22 +316,26 @@ protectedAdmin.callbackQuery(/^a:vault_start:(\d+)$/, async (ctx) => {
         ctx.api,
         ctx.env,
         "اكتملت مزامنة الأرشيف بالكامل",
-        `🎉 تم بنجاح نقل وتأمين جميع ملفات البوت (${allContents.length} ملف) داخل قناة المستودع الدائم <code>${storageChannelId}</code> وتحديث قاعدة البيانات بالكامل.`
+        `🎉 تم بحمد الله نقل وتأمين جميع ملفات البوت بالكامل (${allContents.length} ملف) داخل قناة المستودع الدائم <code>${storageChannelId}</code>.`
       )
     );
     return;
   }
 
-  const batchSize = 25;
+  const batchSize = 15; // حجم دفعة آمن وسريع جداً ويتفادى أي حدود في السيرفر
   const currentBatch = pending.slice(0, batchSize);
 
-  let successCount = 0;
-  let failCount = 0;
+  const updatesToBatch: {
+    id: number;
+    sourceChatId: string;
+    sourceMessageId: number;
+  }[] = [];
 
   for (const item of currentBatch) {
     try {
       let newMsgId: number | null = null;
-      // 1. محاولة النسخ من الرسالة الأصلية
+
+      // 1. المحاولة الأساسية: النسخ المباشر من الرسالة الأصلية
       try {
         const copied = await ctx.api.copyMessage(
           storageChannelId,
@@ -324,97 +344,124 @@ protectedAdmin.callbackQuery(/^a:vault_start:(\d+)$/, async (ctx) => {
         );
         newMsgId = copied.message_id;
       } catch {
-        // 2. إذا فشل النسخ، نرسل عبر file_id الاحتياطي
-        if (item.fileId) {
+        // 2. المحاولة البديلة: إذا حُذفت الرسالة من الغروب نعتمد على محتوى الملف أو النص
+        if (item.contentType === "text" && item.caption) {
+          const sentText = await ctx.api.sendMessage(
+            storageChannelId,
+            item.caption
+          );
+          newMsgId = sentText.message_id;
+        } else if (item.fileId) {
           const caption = item.caption ?? undefined;
-          let sent: any;
+          let sentMedia: any;
           switch (item.contentType) {
             case "video":
-              sent = await ctx.api.sendVideo(storageChannelId, item.fileId, {
-                caption,
-              });
+              sentMedia = await ctx.api.sendVideo(
+                storageChannelId,
+                item.fileId,
+                { caption }
+              );
               break;
             case "audio":
-              sent = await ctx.api.sendAudio(storageChannelId, item.fileId, {
-                caption,
-              });
+              sentMedia = await ctx.api.sendAudio(
+                storageChannelId,
+                item.fileId,
+                { caption }
+              );
               break;
             case "voice":
-              sent = await ctx.api.sendVoice(storageChannelId, item.fileId, {
-                caption,
-              });
+              sentMedia = await ctx.api.sendVoice(
+                storageChannelId,
+                item.fileId,
+                { caption }
+              );
               break;
             case "photo":
-              sent = await ctx.api.sendPhoto(storageChannelId, item.fileId, {
-                caption,
-              });
+              sentMedia = await ctx.api.sendPhoto(
+                storageChannelId,
+                item.fileId,
+                { caption }
+              );
               break;
             default:
-              sent = await ctx.api.sendDocument(
+              sentMedia = await ctx.api.sendDocument(
                 storageChannelId,
                 item.fileId,
                 { caption }
               );
               break;
           }
-          if (sent && "message_id" in sent) {
-            newMsgId = sent.message_id;
+          if (sentMedia && "message_id" in sentMedia) {
+            newMsgId = sentMedia.message_id;
           }
         }
       }
 
       if (newMsgId) {
-        await ctx.services.contentAdmin.updateContentSource(
-          item.id,
-          storageChannelId,
-          newMsgId
-        );
-        successCount++;
-      } else {
-        failCount++;
+        updatesToBatch.push({
+          id: item.id,
+          sourceChatId: storageChannelId,
+          sourceMessageId: newMsgId,
+        });
       }
     } catch (itemErr) {
-      failCount++;
       console.warn(`[VaultSync] Failed item #${item.id}:`, itemErr);
     }
   }
 
-  const remaining = pending.length - successCount;
+  // تحديث قاعدة بيانات D1 في استعلام واحد مدمج (Single Batch Round-trip)
+  if (updatesToBatch.length > 0) {
+    await ctx.services.contentAdmin.updateContentSourcesBatch(updatesToBatch);
+  }
+
+  const remaining = pending.length - updatesToBatch.length;
   const totalTransferred = allContents.length - remaining;
+  const progressPercent = Math.round(
+    (totalTransferred / allContents.length) * 100
+  );
+
+  const filledBlocks = Math.round((progressPercent / 100) * 10);
+  const progressBar =
+    "🟩".repeat(filledBlocks) + "⬜".repeat(10 - filledBlocks);
 
   // إرسال تقرير الدفعة في توبيك السجلات
   ctx.runInBackground(
     SystemLogger.info(
       ctx.api,
       ctx.env,
-      "تقدم مزامنة الأرشيف",
-      `📦 تم نقل دفعة جديدة (${successCount} ملف).\n• الإجمالي المنقول حتى الآن: <b>${totalTransferred} / ${allContents.length}</b>\n• المتبقي: <b>${remaining}</b>`
+      "مزامنة دفعة أرشيف",
+      `📦 <b>تم نقل دفعة جديدة بنجاح (${updatesToBatch.length} ملف):</b>\n\n` +
+        `• شريط الإنجاز: [${progressBar}] <b>${progressPercent}%</b>\n` +
+        `• المنقول والمؤمن في المستودع: <b>${totalTransferred} / ${allContents.length}</b>\n` +
+        `• المتبقي: <b>${remaining}</b> ملف`
     )
   );
 
   if (remaining <= 0) {
     await safeEditOrReply(
       ctx,
-      `🎉 <b>اكتملت مزامنة وتأمين كامل الأرشيف (${allContents.length} ملف) بنجاح 100%!</b>\n\nجميع الملفات أصبحت ثابتة ومحمية داخل قناة المستودع الدائم للأبد.`,
+      `🎉 <b>اكتملت مزامنة وتأمين كامل الأرشيف (${allContents.length} ملف) بنجاح 100%!</b>\n\n[${progressBar}] 100%\n\nجميع الملفات أصبحت ثابتة ومحمية داخل قناة المستودع الدائم للأبد.`,
       new InlineKeyboard(),
       true
     );
     return;
   }
 
+  const nextBatchCount = Math.min(remaining, batchSize);
   const nextKb = new InlineKeyboard()
     .text(
-      `▶️ متابعة نقل الدفعة التالية (${remaining} متبقي)`,
+      `🚀 نقل الدفعة التالية (${nextBatchCount} ملف)`,
       "a:vault_start:0"
     )
     .row();
 
   await safeEditOrReply(
     ctx,
-    `⏳ <b>جاري نقل وتأمين الملفات في المستودع...</b>\n\n` +
-      `• تم نقل وتثبيت: <b>${totalTransferred}</b> من أصل <b>${allContents.length}</b> ملف.\n` +
-      `• المتبقي الآن: <b>${remaining}</b> ملف.\n\n` +
-      `<i>(يمكنك مراقبة التقارير الحية في توبيك السجلات)</i>\n\n` +
+    `📦 <b>تقدم مزامنة وتأمين الأرشيف في المستودع</b>\n\n` +
+      `[${progressBar}] <b>${progressPercent}%</b>\n\n` +
+      `• تم تأمين ونقل: <b>${totalTransferred}</b> من أصل <b>${allContents.length}</b> ملف.\n` +
+      `• المتبقي لنقله: <b>${remaining}</b> ملف.\n\n` +
+      `<i>(التقارير الحية تنزل لحظياً في توبيك السجلات)</i>\n\n` +
       `اضغط للمتابعة 👇`,
     nextKb,
     true
@@ -768,6 +815,16 @@ protectedAdmin.callbackQuery(/^a:del_yes:(\d+)$/, async (ctx) => {
   await ctx.answerCallbackQuery({
     text: "✅ تم حذف الزر.",
   });
+  ctx.runInBackground(
+    SystemLogger.info(
+      ctx.api,
+      ctx.env,
+      "حذف زر/قسم",
+      `🗑️ قام المشرف <b>${escapeHtml(
+        ctx.from?.first_name ?? "مشرف"
+      )}</b> بحذف القسم <code>#${nodeId}</code>.`
+    )
+  );
   await renderAdminNode(ctx, parentId, true);
 });
 
@@ -841,6 +898,19 @@ protectedAdmin.callbackQuery(/^a:del_cnt:(\d+)$/, async (ctx) => {
   await ctx.answerCallbackQuery({
     text: "✅ تم حذف الملف.",
   });
+
+  ctx.runInBackground(
+    SystemLogger.info(
+      ctx.api,
+      ctx.env,
+      "حذف ملف من البوت",
+      `🗑️ قام المشرف <b>${escapeHtml(
+        ctx.from?.first_name ?? "مشرف"
+      )}</b> بحذف الملف: <b>«${escapeHtml(
+        deleted.title
+      )}»</b> من القسم <code>#${deleted.nodeId}</code>.`
+    )
+  );
 
   await renderContentListScreen(ctx, deleted.nodeId, true);
 });

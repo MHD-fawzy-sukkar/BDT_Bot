@@ -1,6 +1,9 @@
 import { webhookCallback } from "grammy";
 import { Env } from "./infrastructure/config/Env";
 import { createBot } from "./presentation/bot";
+import { SystemLogger } from "./presentation/utils/systemLogger";
+
+let hasLoggedColdStart = false;
 
 export default {
   async fetch(
@@ -9,6 +12,28 @@ export default {
     executionCtx: ExecutionContext
   ): Promise<Response> {
     const url = new URL(request.url);
+
+    // إشعار تشغيل الخادم على شبكة Edge (Cold Start) مرة واحدة لكل بيئة تشغيل Isolate
+    if (!hasLoggedColdStart && env.ADMIN_GROUP_ID && env.LOGS_TOPIC_ID) {
+      hasLoggedColdStart = true;
+      try {
+        const bot = createBot(env);
+        executionCtx.waitUntil(
+          SystemLogger.health(
+            bot.api,
+            env,
+            "تشغيل الخادم (Edge Worker Active)",
+            `🟢 <b>سيرفر البوت يعمل بنشاط على شبكة Cloudflare Edge</b>\n\n` +
+              `• <b>قناة التخزين الدائم:</b> <code>${env.STORAGE_CHANNEL_ID || "غير محددة"}</code>\n` +
+              `• <b>توبيك المراقبة:</b> <code>#${env.LOGS_TOPIC_ID}</code>\n` +
+              `• <b>التوقيت:</b> <code>${new Date().toISOString()}</code>\n` +
+              `• <b>الحالة:</b> جاهز لاستقبال الطلبات وتأمين المحتوى.`
+          )
+        );
+      } catch (err) {
+        console.error("[StartupLog] Error sending cold start log:", err);
+      }
+    }
 
     // 1. نقطة فحص حالة البوت (Health Check)
     if (request.method === "GET" && url.pathname === "/") {
@@ -115,6 +140,18 @@ export default {
             { scope: { type: "all_group_chats" } }
           ),
         ]);
+
+        // إرسال إشعار فوري في توبيك السجلات عند تحديث الـ Webhook والنشر
+        executionCtx.waitUntil(
+          SystemLogger.info(
+            bot.api,
+            env,
+            "تحديث الـ Webhook ونظام البوت",
+            `🚀 <b>تم بنجاح تحديث مسار الـ Webhook وتسجيل أوامر البوت!</b>\n\n` +
+              `• <b>رابط الخدمة:</b> <code>${webhookUrl}</code>\n` +
+              `• <b>التوقيت:</b> <code>${new Date().toISOString()}</code>`
+          )
+        );
 
         return new Response(
           JSON.stringify(

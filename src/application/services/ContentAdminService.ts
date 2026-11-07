@@ -40,6 +40,12 @@ export class ContentAdminService {
     );
   }
 
+  async updateContentSourcesBatch(
+    items: { id: number; sourceChatId: string; sourceMessageId: number }[]
+  ): Promise<void> {
+    await this.contentRepo.updateSourceLocationsBatch(items);
+  }
+
   async getContentById(contentId: number): Promise<NodeContent | null> {
     return this.contentRepo.findById(contentId);
   }

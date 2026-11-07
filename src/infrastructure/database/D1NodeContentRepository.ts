@@ -149,6 +149,23 @@ export class D1NodeContentRepository implements INodeContentRepository {
     TreeMemoryCache.invalidate();
   }
 
+  async updateSourceLocationsBatch(
+    items: { id: number; sourceChatId: string; sourceMessageId: number }[]
+  ): Promise<void> {
+    if (items.length === 0) return;
+
+    const statements = items.map((item) =>
+      this.db
+        .prepare(
+          "UPDATE node_contents SET source_chat_id = ?, source_message_id = ? WHERE id = ?"
+        )
+        .bind(item.sourceChatId, item.sourceMessageId, item.id)
+    );
+
+    await this.db.batch(statements);
+    TreeMemoryCache.invalidate();
+  }
+
   async countByNodeId(nodeId: number): Promise<number> {
     const snapshot = await TreeMemoryCache.getSnapshot(this.db);
     return (snapshot.contentsByNodeId.get(nodeId) ?? []).length;
