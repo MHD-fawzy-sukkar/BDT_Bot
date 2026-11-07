@@ -1,0 +1,22 @@
+{
+  "name": "bdt-telegram-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Telegram Educational Tree Bot on Cloudflare Workers with Clean Architecture, grammY, and D1",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "db:migrate:local": "wrangler d1 migrations apply bdt-bot-db-eu --local",
+    "db:migrate:remote": "wrangler d1 migrations apply bdt-bot-db-eu --remote"
+  },
+  "dependencies": {
+    "grammy": "^1.35.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261101.1",
+    "typescript": "^5.8.2",
+    "wrangler": "^4.156.1"
+  }
+}

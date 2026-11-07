@@ -1,0 +1,21 @@
+name = "bdt-telegram-bot"
+main = "src/index.ts"
+compatibility_date = "2025-03-01"
+
+# وضع التشغيل الذكي ليكون الـ Worker بجانب سيرفرات تيلغرام وقاعدة البيانات الأوروبية مباشرةً
+[placement]
+mode = "smart"
+
+# إعداد قاعدة بيانات Cloudflare D1 (في منطقة أوروبا WEUR لسرعة استجابة فائقة)
+[[d1_databases]]
+binding = "DB"
+database_name = "bdt-bot-db-eu"
+database_id = "2e929353-1633-41bf-88bf-bf744d994c5a"
+migrations_dir = "migrations"
+
+[vars]
+# معرف غروب المشرفين (حصرياً داخل هذا الغروب تعمل أوامر الإدارة)
+ADMIN_GROUP_ID = "-1004346734857"
+
+# محصورة حصرياً داخل غروب الأدمن فقط
+ADMIN_USER_IDS = ""
