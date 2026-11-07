@@ -2,8 +2,10 @@ import { webhookCallback } from "grammy";
 import { Env } from "./infrastructure/config/Env";
 import { createBot } from "./presentation/bot";
 import { SystemLogger } from "./presentation/utils/systemLogger";
-
-let hasLoggedColdStart = false;
+import { D1MenuNodeRepository } from "./infrastructure/database/D1MenuNodeRepository";
+import { D1NodeContentRepository } from "./infrastructure/database/D1NodeContentRepository";
+import { ContentAdminService } from "./application/services/ContentAdminService";
+import { VaultSyncRunner } from "./presentation/utils/vaultSyncRunner";
 
 export default {
   async fetch(
@@ -12,28 +14,6 @@ export default {
     executionCtx: ExecutionContext
   ): Promise<Response> {
     const url = new URL(request.url);
-
-    // إشعار تشغيل الخادم على شبكة Edge (Cold Start) مرة واحدة لكل بيئة تشغيل Isolate
-    if (!hasLoggedColdStart && env.ADMIN_GROUP_ID && env.LOGS_TOPIC_ID) {
-      hasLoggedColdStart = true;
-      try {
-        const bot = createBot(env);
-        executionCtx.waitUntil(
-          SystemLogger.health(
-            bot.api,
-            env,
-            "تشغيل الخادم (Edge Worker Active)",
-            `🟢 <b>سيرفر البوت يعمل بنشاط على شبكة Cloudflare Edge</b>\n\n` +
-              `• <b>قناة التخزين الدائم:</b> <code>${env.STORAGE_CHANNEL_ID || "غير محددة"}</code>\n` +
-              `• <b>توبيك المراقبة:</b> <code>#${env.LOGS_TOPIC_ID}</code>\n` +
-              `• <b>التوقيت:</b> <code>${new Date().toISOString()}</code>\n` +
-              `• <b>الحالة:</b> جاهز لاستقبال الطلبات وتأمين المحتوى.`
-          )
-        );
-      } catch (err) {
-        console.error("[StartupLog] Error sending cold start log:", err);
-      }
-    }
 
     // 1. نقطة فحص حالة البوت (Health Check)
     if (request.method === "GET" && url.pathname === "/") {
@@ -68,6 +48,45 @@ export default {
         });
       } catch (err) {
         return new Response(String(err), { status: 500 });
+      }
+    }
+
+    // نقطة استدعاء آلية آمنة لمزامنة الأرشيف دفعة دفعة مع إشراف وتأكيد فوري
+    if (
+      (request.method === "POST" || request.method === "GET") &&
+      url.pathname === "/api/sync-vault-step"
+    ) {
+      const authKey =
+        request.headers.get("x-sync-key") || url.searchParams.get("key");
+      if (authKey !== "bdt_sync_vault_2026") {
+        return new Response(
+          JSON.stringify({ error: "Unauthorized: Invalid key" }),
+          { status: 401, headers: { "content-type": "application/json" } }
+        );
+      }
+
+      try {
+        const bot = createBot(env, executionCtx);
+        const nodeRepo = new D1MenuNodeRepository(env.DB);
+        const contentRepo = new D1NodeContentRepository(env.DB);
+        const contentAdmin = new ContentAdminService(nodeRepo, contentRepo);
+
+        const result = await VaultSyncRunner.runBatch(
+          bot.api,
+          env,
+          contentAdmin,
+          10
+        );
+
+        return new Response(JSON.stringify(result, null, 2), {
+          status: 200,
+          headers: { "content-type": "application/json; charset=utf-8" },
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: String(err) }), {
+          status: 500,
+          headers: { "content-type": "application/json; charset=utf-8" },
+        });
       }
     }
 
@@ -111,6 +130,10 @@ export default {
               {
                 command: "backup",
                 description: "💾 تحميل نسخة احتياطية كاملة فورية",
+              },
+              {
+                command: "health",
+                description: "🩺 فحص استقرار السيرفر وقاعدة البيانات",
               },
               {
                 command: "test_logs",

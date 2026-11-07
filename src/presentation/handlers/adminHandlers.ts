@@ -22,6 +22,7 @@ import { adminGuard } from "../middlewares/adminGuard";
 import { deliverNodeContents } from "../utils/contentDelivery";
 import { SystemLogger } from "../utils/systemLogger";
 import { safeEditOrReply, tryDeleteMessage } from "../utils/telegramUi";
+import { VaultSyncRunner } from "../utils/vaultSyncRunner";
 
 export const adminHandlers = new Composer<BotContext>();
 
@@ -173,6 +174,35 @@ protectedAdmin.command("test_logs", async (ctx) => {
   await ctx.reply("✅ تم إرسال رسالة فحص بنجاح إلى توبيك السجلات!");
 });
 
+// 5.1 أمر فحص صحة واستقرار النظام (/health)
+protectedAdmin.command("health", async (ctx) => {
+  const start = Date.now();
+  const allContents = await ctx.services.contentAdmin.getAllContents();
+  const allNodes = await ctx.services.navigation.getAllNodes();
+  const duration = Date.now() - start;
+
+  const storageChannelId = ctx.env.STORAGE_CHANNEL_ID?.trim();
+  const inVault = storageChannelId
+    ? allContents.filter((c) => c.sourceChatId === storageChannelId).length
+    : 0;
+
+  const report =
+    `🩺 <b>تقرير صحة واستقرار النظام (System Health):</b>\n\n` +
+    `• <b>حالة السيرفر:</b> Cloudflare Workers (نشط ويعمل بنجاح 🟢)\n` +
+    `• <b>استجابة قاعدة البيانات D1:</b> <code>${duration}ms</code> (فائقة السرعة)\n` +
+    `• <b>إجمالي الأزرار في البوت:</b> <b>${allNodes.length}</b>\n` +
+    `• <b>إجمالي الملفات المسجلة:</b> <b>${allContents.length}</b>\n` +
+    `• <b>الملفات المؤمنة بالمستودع:</b> <b>${inVault} / ${allContents.length}</b>\n` +
+    `• <b>توبيك السجلات:</b> <code>#${ctx.env.LOGS_TOPIC_ID ?? "غير محدد"}</code>\n` +
+    `• <b>التوقيت:</b> <code>${new Date().toISOString()}</code>`;
+
+  await ctx.reply(report, { parse_mode: "HTML" });
+
+  ctx.runInBackground(
+    SystemLogger.health(ctx.api, ctx.env, "فحص صحة النظام (Health Check)", report)
+  );
+});
+
 // 6. أمر النسخ الاحتياطي الكامل فوراً (/backup)
 protectedAdmin.command("backup", async (ctx) => {
   const statusMsg = await ctx.reply(
@@ -262,7 +292,7 @@ protectedAdmin.command("sync_vault", async (ctx) => {
   const progressBar = "🟩".repeat(filledBlocks) + "⬜".repeat(10 - filledBlocks);
 
   const kb = new InlineKeyboard()
-    .text(`🚀 نقل الدفعة التالية (15 ملف)`, "a:vault_start:0")
+    .text(`🚀 نقل الدفعة التالية (10 ملفات)`, "a:vault_start:0")
     .row();
 
   await ctx.reply(
@@ -299,155 +329,24 @@ protectedAdmin.callbackQuery(/^a:vault_start:(\d+)$/, async (ctx) => {
     true
   );
 
-  const allContents = await ctx.services.contentAdmin.getAllContents();
-  const pending = allContents.filter(
-    (c) => c.sourceChatId !== storageChannelId
+  const result = await VaultSyncRunner.runBatch(
+    ctx.api,
+    ctx.env,
+    ctx.services.contentAdmin,
+    10
   );
 
-  if (pending.length === 0) {
+  if (result.isComplete) {
     await safeEditOrReply(
       ctx,
-      `🎉 <b>اكتملت مزامنة وتأمين كامل الأرشيف (${allContents.length} ملف) بنجاح 100%!</b>\n\nجميع الملفات أصبحت ثابتة ومحمية داخل قناة المستودع الدائم للأبد.`,
-      new InlineKeyboard(),
-      true
-    );
-    ctx.runInBackground(
-      SystemLogger.info(
-        ctx.api,
-        ctx.env,
-        "اكتملت مزامنة الأرشيف بالكامل",
-        `🎉 تم بحمد الله نقل وتأمين جميع ملفات البوت بالكامل (${allContents.length} ملف) داخل قناة المستودع الدائم <code>${storageChannelId}</code>.`
-      )
-    );
-    return;
-  }
-
-  const batchSize = 15; // حجم دفعة آمن وسريع جداً ويتفادى أي حدود في السيرفر
-  const currentBatch = pending.slice(0, batchSize);
-
-  const updatesToBatch: {
-    id: number;
-    sourceChatId: string;
-    sourceMessageId: number;
-  }[] = [];
-
-  for (const item of currentBatch) {
-    try {
-      let newMsgId: number | null = null;
-
-      // 1. المحاولة الأساسية: النسخ المباشر من الرسالة الأصلية
-      try {
-        const copied = await ctx.api.copyMessage(
-          storageChannelId,
-          item.sourceChatId,
-          item.sourceMessageId
-        );
-        newMsgId = copied.message_id;
-      } catch {
-        // 2. المحاولة البديلة: إذا حُذفت الرسالة من الغروب نعتمد على محتوى الملف أو النص
-        if (item.contentType === "text" && item.caption) {
-          const sentText = await ctx.api.sendMessage(
-            storageChannelId,
-            item.caption
-          );
-          newMsgId = sentText.message_id;
-        } else if (item.fileId) {
-          const caption = item.caption ?? undefined;
-          let sentMedia: any;
-          switch (item.contentType) {
-            case "video":
-              sentMedia = await ctx.api.sendVideo(
-                storageChannelId,
-                item.fileId,
-                { caption }
-              );
-              break;
-            case "audio":
-              sentMedia = await ctx.api.sendAudio(
-                storageChannelId,
-                item.fileId,
-                { caption }
-              );
-              break;
-            case "voice":
-              sentMedia = await ctx.api.sendVoice(
-                storageChannelId,
-                item.fileId,
-                { caption }
-              );
-              break;
-            case "photo":
-              sentMedia = await ctx.api.sendPhoto(
-                storageChannelId,
-                item.fileId,
-                { caption }
-              );
-              break;
-            default:
-              sentMedia = await ctx.api.sendDocument(
-                storageChannelId,
-                item.fileId,
-                { caption }
-              );
-              break;
-          }
-          if (sentMedia && "message_id" in sentMedia) {
-            newMsgId = sentMedia.message_id;
-          }
-        }
-      }
-
-      if (newMsgId) {
-        updatesToBatch.push({
-          id: item.id,
-          sourceChatId: storageChannelId,
-          sourceMessageId: newMsgId,
-        });
-      }
-    } catch (itemErr) {
-      console.warn(`[VaultSync] Failed item #${item.id}:`, itemErr);
-    }
-  }
-
-  // تحديث قاعدة بيانات D1 في استعلام واحد مدمج (Single Batch Round-trip)
-  if (updatesToBatch.length > 0) {
-    await ctx.services.contentAdmin.updateContentSourcesBatch(updatesToBatch);
-  }
-
-  const remaining = pending.length - updatesToBatch.length;
-  const totalTransferred = allContents.length - remaining;
-  const progressPercent = Math.round(
-    (totalTransferred / allContents.length) * 100
-  );
-
-  const filledBlocks = Math.round((progressPercent / 100) * 10);
-  const progressBar =
-    "🟩".repeat(filledBlocks) + "⬜".repeat(10 - filledBlocks);
-
-  // إرسال تقرير الدفعة في توبيك السجلات
-  ctx.runInBackground(
-    SystemLogger.info(
-      ctx.api,
-      ctx.env,
-      "مزامنة دفعة أرشيف",
-      `📦 <b>تم نقل دفعة جديدة بنجاح (${updatesToBatch.length} ملف):</b>\n\n` +
-        `• شريط الإنجاز: [${progressBar}] <b>${progressPercent}%</b>\n` +
-        `• المنقول والمؤمن في المستودع: <b>${totalTransferred} / ${allContents.length}</b>\n` +
-        `• المتبقي: <b>${remaining}</b> ملف`
-    )
-  );
-
-  if (remaining <= 0) {
-    await safeEditOrReply(
-      ctx,
-      `🎉 <b>اكتملت مزامنة وتأمين كامل الأرشيف (${allContents.length} ملف) بنجاح 100%!</b>\n\n[${progressBar}] 100%\n\nجميع الملفات أصبحت ثابتة ومحمية داخل قناة المستودع الدائم للأبد.`,
+      `🎉 <b>اكتملت مزامنة وتأمين كامل الأرشيف (${result.total} ملف) بنجاح 100%!</b>\n\n[${result.progressBar}] 100%\n\nجميع الملفات أصبحت ثابتة ومحمية داخل قناة المستودع الدائم للأبد.`,
       new InlineKeyboard(),
       true
     );
     return;
   }
 
-  const nextBatchCount = Math.min(remaining, batchSize);
+  const nextBatchCount = Math.min(result.remaining, 10);
   const nextKb = new InlineKeyboard()
     .text(
       `🚀 نقل الدفعة التالية (${nextBatchCount} ملف)`,
@@ -458,9 +357,9 @@ protectedAdmin.callbackQuery(/^a:vault_start:(\d+)$/, async (ctx) => {
   await safeEditOrReply(
     ctx,
     `📦 <b>تقدم مزامنة وتأمين الأرشيف في المستودع</b>\n\n` +
-      `[${progressBar}] <b>${progressPercent}%</b>\n\n` +
-      `• تم تأمين ونقل: <b>${totalTransferred}</b> من أصل <b>${allContents.length}</b> ملف.\n` +
-      `• المتبقي لنقله: <b>${remaining}</b> ملف.\n\n` +
+      `[${result.progressBar}] <b>${result.percent}%</b>\n\n` +
+      `• تم تأمين ونقل: <b>${result.totalTransferred}</b> من أصل <b>${result.total}</b> ملف.\n` +
+      `• المتبقي لنقله: <b>${result.remaining}</b> ملف.\n\n` +
       `<i>(التقارير الحية تنزل لحظياً في توبيك السجلات)</i>\n\n` +
       `اضغط للمتابعة 👇`,
     nextKb,
