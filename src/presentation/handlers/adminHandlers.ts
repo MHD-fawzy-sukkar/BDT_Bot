@@ -509,12 +509,18 @@ protectedAdmin.callbackQuery(/^a:add_cnt:(\d+)$/, async (ctx) => {
 
   const view = await ctx.services.navigation.getMenuView(nodeId);
 
+  // إذا كان الزر مجلداً ولديه أزرار فرعية، نوضح للمشرف طريقة ظهور الملفات العامة
+  const folderNote =
+    view.children.length > 0
+      ? `\n\n💡 <i>ملاحظة: هذا القسم يحتوي على أزرار فرعية. ستظهر هذه الملفات كـ «ملفات عامة للقسم» مع زر مخصص لها فوق الأزرار الفرعية.</i>`
+      : "";
+
   const msgId = await safeEditOrReply(
     ctx,
     `📎 <b>إضافة ملفات أو رسائل داخل «${escapeHtml(
       view.currentNode?.title ?? ""
     )}»</b>\n\n` +
-      `أرسل أو حوّل إلى هنا مباشرةً أي ملفات أو صور أو صوتيات أو رسائل نصية تريد وضعها في هذا الزر.\n\n` +
+      `أرسل أو حوّل إلى هنا مباشرةً أي ملفات أو صور أو صوتيات أو رسائل نصية تريد وضعها في هذا الزر.${folderNote}\n\n` +
       `وعندما تنتهي اضغط على الزر بالأسفل 👇`,
     buildCancelSessionKeyboard(nodeId, true),
     true
@@ -532,6 +538,12 @@ protectedAdmin.callbackQuery(/^a:add_cnt:(\d+)$/, async (ctx) => {
 // 6. استعراض وحذف وترتيب الملفات الموجودة في الزر
 protectedAdmin.callbackQuery(/^a:list_cnt:(\d+)$/, async (ctx) => {
   const nodeId = Number(ctx.match[1]);
+  if (ctx.from && ctx.chat) {
+    await ctx.services.menuAdmin.clearSession(
+      String(ctx.from.id),
+      String(ctx.chat.id)
+    );
+  }
   await renderContentListScreen(ctx, nodeId, true);
 });
 
@@ -549,6 +561,12 @@ protectedAdmin.callbackQuery(/^a:cnt_(up|down):(\d+)$/, async (ctx) => {
 
 protectedAdmin.callbackQuery(/^a:del_cnt:(\d+)$/, async (ctx) => {
   const contentId = Number(ctx.match[1]);
+  if (ctx.from && ctx.chat) {
+    await ctx.services.menuAdmin.clearSession(
+      String(ctx.from.id),
+      String(ctx.chat.id)
+    );
+  }
   const deleted = await ctx.services.contentAdmin.deleteContentItem(contentId);
 
   await ctx.answerCallbackQuery({
@@ -560,6 +578,12 @@ protectedAdmin.callbackQuery(/^a:del_cnt:(\d+)$/, async (ctx) => {
 
 protectedAdmin.callbackQuery(/^a:clr_cnt_ask:(\d+)$/, async (ctx) => {
   const nodeId = Number(ctx.match[1]);
+  if (ctx.from && ctx.chat) {
+    await ctx.services.menuAdmin.clearSession(
+      String(ctx.from.id),
+      String(ctx.chat.id)
+    );
+  }
   const view = await ctx.services.navigation.getMenuView(nodeId);
 
   await safeEditOrReply(

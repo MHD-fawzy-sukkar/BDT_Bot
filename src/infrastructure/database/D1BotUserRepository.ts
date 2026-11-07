@@ -4,6 +4,9 @@ import {
   UserCountsSummary,
 } from "../../domain/repositories/IBotUserRepository";
 
+// كاش فوري في الذاكرة لموقع الطالب الحالي لتفادي أي تأخير أو تضارب في الضغطات المتتالية (0ms)
+const userCurrentNodeMemoryMap = new Map<string, number | null>();
+
 export class D1BotUserRepository implements IBotUserRepository {
   constructor(private readonly db: D1Database) {}
 
@@ -63,18 +66,27 @@ export class D1BotUserRepository implements IBotUserRepository {
   }
 
   async getCurrentNodeId(userId: string): Promise<number | null> {
+    if (userCurrentNodeMemoryMap.has(userId)) {
+      return userCurrentNodeMemoryMap.get(userId) ?? null;
+    }
+
     const row = await this.db
       .prepare("SELECT current_node_id FROM bot_users WHERE user_id = ?")
       .bind(userId)
       .first<{ current_node_id: number | null }>();
 
-    return row && row.current_node_id !== null ? Number(row.current_node_id) : null;
+    const id =
+      row && row.current_node_id !== null ? Number(row.current_node_id) : null;
+    userCurrentNodeMemoryMap.set(userId, id);
+    return id;
   }
 
   async setCurrentNodeId(
     userId: string,
     nodeId: number | null
   ): Promise<void> {
+    userCurrentNodeMemoryMap.set(userId, nodeId);
+
     await this.db
       .prepare(
         `INSERT INTO bot_users (user_id, current_node_id, is_active, joined_at, last_active_at)

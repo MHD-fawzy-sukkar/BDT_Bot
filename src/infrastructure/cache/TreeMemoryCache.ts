@@ -42,7 +42,7 @@ export interface TreeSnapshot {
 // كاش في الذاكرة السريعة للـ Worker (يدوم طوال حياة الـ Isolate ويتحدث فوراً عند أي تعديل من الأدمن)
 let cachedSnapshot: TreeSnapshot | null = null;
 let pendingLoadPromise: Promise<TreeSnapshot> | null = null;
-const CACHE_TTL_MS = 120_000; // دقيقتان كحد أقصى أو يتحدث فوراً عند أي تعديل من المشرف
+const CACHE_TTL_MS = 30_000; // 30 ثانية كحد أقصى لضمان المزامنة السريعة بين كافة خوادم Cloudflare، أو يتحدث فوراً عند أي تعديل
 
 export class TreeMemoryCache {
   static invalidate(): void {
@@ -60,9 +60,24 @@ export class TreeMemoryCache {
       return pendingLoadPromise;
     }
 
-    pendingLoadPromise = TreeMemoryCache.loadFromDatabase(db).finally(() => {
-      pendingLoadPromise = null;
-    });
+    pendingLoadPromise = TreeMemoryCache.loadFromDatabase(db)
+      .catch((err) => {
+        console.error(
+          "[TreeMemoryCache] Error refreshing snapshot from D1:",
+          err
+        );
+        // صمام أمان: إذا حدث خطأ مؤقت في الاتصال بـ D1 نستخدم آخر نسخة صالحة في الذاكرة
+        if (cachedSnapshot) {
+          console.warn(
+            "[TreeMemoryCache] Serving stale snapshot fallback to prevent downtime"
+          );
+          return cachedSnapshot;
+        }
+        throw err;
+      })
+      .finally(() => {
+        pendingLoadPromise = null;
+      });
 
     return pendingLoadPromise;
   }

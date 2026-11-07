@@ -5,6 +5,7 @@ import {
   BACK_BUTTON_TEXT,
   buildUserReplyKeyboard,
   formatUserMenuText,
+  GENERAL_FILES_BUTTON_PREFIX,
   HOME_BUTTON_TEXT,
 } from "../keyboards/UserMenuKeyboard";
 import { deliverNodeContents } from "../utils/contentDelivery";
@@ -95,7 +96,20 @@ userHandlers.on("message:text", async (ctx, next) => {
     return;
   }
 
-  // ج) البحث عن الزر الذي ضغط عليه الطالب ضمن القسم المفتوح أمامه (من الكاش في 0ms)
+  // ج) الضغط على زر "📄 ملفات هذا القسم" (عندما يحتوي المجلد ملفات عامة مع أزراره الفرعية)
+  if (text.startsWith(GENERAL_FILES_BUTTON_PREFIX)) {
+    const currentNode =
+      await ctx.services.navigation.getValidUserCurrentNode(userId);
+    if (currentNode && ctx.chat?.id) {
+      const view = await ctx.services.navigation.getMenuView(currentNode.id);
+      if (view.contents.length > 0) {
+        await deliverNodeContents(ctx, ctx.chat.id, view.contents);
+        return;
+      }
+    }
+  }
+
+  // د) البحث عن الزر الذي ضغط عليه الطالب ضمن القسم المفتوح أمامه (من الكاش في 0ms)
   const targetNode = await ctx.services.navigation.resolveNodeByButtonText(
     userId,
     text
@@ -154,13 +168,7 @@ async function handleStudentNodeSelection(
     return;
   }
 
-  // 3. إذا كان الزر يحتوي ملفات ويحتوي أيضاً أزراراً فرعية بداخله:
-  if (view.contents.length > 0 && view.children.length > 0) {
-    await deliverNodeContents(ctx, chatId, view.contents);
-    await showUserNodeKeyboard(ctx, userId, nodeId, view);
-    return;
-  }
-
-  // 4. إذا كان الزر يحتوي أزراراً فرعية فقط (مجلد)، نستخدم نفس الـ view المحمل مسبقاً بدون استعلام مكرر!
+  // 3. إذا كان الزر يحتوي أزراراً فرعية (مجلد)، سواء كان معه ملفات عامة أم لا:
+  // نفتح كيبورد القسم مباشرة بدون إلقاء الملفات قسراً! (الملفات العامة تظهر كزر مخصص بأعلى الكيبورد)
   await showUserNodeKeyboard(ctx, userId, nodeId, view);
 }

@@ -4,6 +4,7 @@ import { MenuNodeWithCounts } from "../../domain/entities/MenuNode";
 
 export const BACK_BUTTON_TEXT = "↩️ رجوع";
 export const HOME_BUTTON_TEXT = "🏠 الرئيسية";
+export const GENERAL_FILES_BUTTON_PREFIX = "📄 ملفات هذا القسم";
 
 /**
  * يرتب الأزرار المدمجة (تُستخدم للوحة المشرفين داخل غروب الأدمن)
@@ -46,6 +47,19 @@ export function appendCleanButtonsGrid(
  */
 export function buildUserReplyKeyboard(view: MenuViewData): Keyboard {
   const keyboard = new Keyboard();
+
+  // في حال كان الزر مجلداً ولديه أزرار فرعية وبنفس الوقت فيه ملفات عامة:
+  // نضع زر الملفات العامة في أول الكيبورد مستقلاً لكي لا تنزل الملفات قسراً
+  if (
+    view.currentNode !== null &&
+    view.contents.length > 0 &&
+    view.children.length > 0
+  ) {
+    keyboard
+      .text(`${GENERAL_FILES_BUTTON_PREFIX} (${view.contents.length})`)
+      .row();
+  }
+
   let currentRowCount = 0;
 
   for (const child of view.children) {
@@ -76,22 +90,29 @@ export function buildUserReplyKeyboard(view: MenuViewData): Keyboard {
     keyboard.text(BACK_BUTTON_TEXT).text(HOME_BUTTON_TEXT).row();
   }
 
-  return keyboard.resized();
+  return keyboard.placeholder("اختر من القائمة بالأسفل ⬇️").resized();
 }
 
 /**
- * رسالة مختصرة وخفيفة جداً عند التنقل بين الأقسام
+ * رسالة منسقة تظهر مسار التصفح الحالي وتوجيهات القسم
  */
 export function formatUserMenuText(view: MenuViewData): string {
   if (view.currentNode === null) {
-    return "🏠 أنت في القائمة الرئيسية";
+    return "🏠 <b>القائمة الرئيسية</b>\n\nاختر من القائمة بالأسفل ⬇️";
+  }
+
+  const lines: string[] = [];
+
+  if (view.breadcrumbText) {
+    lines.push(`📍 <b>المسار:</b> ${escapeHtml(view.breadcrumbText)}`);
   }
 
   if (view.currentNode.description) {
-    return escapeHtml(view.currentNode.description);
+    lines.push(`\n${escapeHtml(view.currentNode.description)}`);
   }
 
-  return `اختر من القائمة ⬇️`;
+  lines.push("\nاختر من القائمة ⬇️");
+  return lines.join("\n");
 }
 
 export function escapeHtml(str: string): string {
