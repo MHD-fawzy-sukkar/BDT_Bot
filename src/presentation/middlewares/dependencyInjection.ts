@@ -3,7 +3,7 @@ import { ContentAdminService } from "../../application/services/ContentAdminServ
 import { MenuAdminService } from "../../application/services/MenuAdminService";
 import { MenuNavigationService } from "../../application/services/MenuNavigationService";
 import { StatsAndBroadcastService } from "../../application/services/StatsAndBroadcastService";
-import { Env } from "../../infrastructure/config/Env";
+import { Env, parseAdminUserIds } from "../../infrastructure/config/Env";
 import { D1AdminSessionRepository } from "../../infrastructure/database/D1AdminSessionRepository";
 import { D1BotUserRepository } from "../../infrastructure/database/D1BotUserRepository";
 import { D1MenuNodeRepository } from "../../infrastructure/database/D1MenuNodeRepository";
@@ -63,10 +63,16 @@ export function createDependencyInjectionMiddleware(
     };
 
     const currentChatId = ctx.chat?.id ? String(ctx.chat.id) : "";
+    const allowedAdminUserIds = parseAdminUserIds(env.ADMIN_USER_IDS);
+    const isUserAllowed =
+      allowedAdminUserIds.size === 0 ||
+      (ctx.from && allowedAdminUserIds.has(String(ctx.from.id)));
 
-    // حصر صلاحيات وأوامر المشرفين حصرياً داخل غروب الأدمن فقط
+    // حصر صلاحيات وأوامر المشرفين حصرياً داخل غروب الأدمن فقط وللمشرفين المعتمدين
     ctx.isAdminContext =
-      adminGroupId.length > 0 && currentChatId === adminGroupId;
+      adminGroupId.length > 0 &&
+      currentChatId === adminGroupId &&
+      Boolean(isUserAllowed);
 
     // دعم كامل لميزة الموضوعات (Topics / Forum Threads) داخل غروب الأدمن
     const threadId = ctx.msg?.message_thread_id;

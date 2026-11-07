@@ -25,9 +25,16 @@ export default {
       );
     }
 
-    // نقطة فحص الـ Webhook المباشرة من تيلغرام (تشخيص فوري)
+    // نقطة فحص الـ Webhook المباشرة من تيلغرام (تشخيص فوري ومحمي)
     if (request.method === "GET" && url.pathname === "/webhook-info") {
       try {
+        if (env.WEBHOOK_SECRET) {
+          const providedSecret = url.searchParams.get("secret");
+          if (providedSecret !== env.WEBHOOK_SECRET) {
+            return new Response("Unauthorized", { status: 401 });
+          }
+        }
+
         const bot = createBot(env);
         const info = await bot.api.getWebhookInfo();
         return new Response(JSON.stringify(info, null, 2), {
