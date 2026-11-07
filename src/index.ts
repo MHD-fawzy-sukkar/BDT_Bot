@@ -73,6 +73,18 @@ export default {
                 description: "🛠️ لوحة تحكم المشرفين وبناء الأزرار",
               },
               {
+                command: "sync_vault",
+                description: "📦 نقل وتأمين الأرشيف في قناة المستودع",
+              },
+              {
+                command: "backup",
+                description: "💾 تحميل نسخة احتياطية كاملة فورية",
+              },
+              {
+                command: "test_logs",
+                description: "🩺 فحص اتصال توبيك السجلات",
+              },
+              {
                 command: "broadcast",
                 description: "📢 إرسال إذاعة عامة للطلاب مع المعاينة",
               },

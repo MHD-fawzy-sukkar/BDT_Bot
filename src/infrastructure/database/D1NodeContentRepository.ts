@@ -39,6 +39,11 @@ function mapRowToNodeContent(row: NodeContentRow): NodeContent {
 export class D1NodeContentRepository implements INodeContentRepository {
   constructor(private readonly db: D1Database) {}
 
+  async findAll(): Promise<NodeContent[]> {
+    const snapshot = await TreeMemoryCache.getSnapshot(this.db);
+    return Array.from(snapshot.contentsById.values());
+  }
+
   async findByNodeId(nodeId: number): Promise<NodeContent[]> {
     const snapshot = await TreeMemoryCache.getSnapshot(this.db);
     return snapshot.contentsByNodeId.get(nodeId) ?? [];
@@ -127,6 +132,20 @@ export class D1NodeContentRepository implements INodeContentRepository {
         .prepare("UPDATE node_contents SET sort_order = ? WHERE id = ?")
         .bind(orderA, contentIdB),
     ]);
+    TreeMemoryCache.invalidate();
+  }
+
+  async updateSourceLocation(
+    id: number,
+    sourceChatId: string,
+    sourceMessageId: number
+  ): Promise<void> {
+    await this.db
+      .prepare(
+        "UPDATE node_contents SET source_chat_id = ?, source_message_id = ? WHERE id = ?"
+      )
+      .bind(sourceChatId, sourceMessageId, id)
+      .run();
     TreeMemoryCache.invalidate();
   }
 

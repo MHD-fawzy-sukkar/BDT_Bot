@@ -1,6 +1,7 @@
 import { Keyboard } from "grammy";
 import { NodeContent } from "../../domain/entities/NodeContent";
 import { BotContext } from "../context/BotContext";
+import { SystemLogger } from "./systemLogger";
 
 /**
  * يرسل الملفات والرسائل بأقصى سرعة ممكنة:
@@ -137,5 +138,17 @@ async function tryFallbackDelivery(
       `[ContentDelivery] Fallback delivery also failed for content #${item.id}:`,
       fallbackErr
     );
+    if (ctx.env) {
+      ctx.runInBackground(
+        SystemLogger.warn(
+          ctx.api,
+          ctx.env,
+          "تعذر تسليم ملف للطالب",
+          `فشل إرسال الملف #${item.id} («${item.title}») للمحادثة <code>${targetChatId}</code>.\nسبب الفشل: <code>${String(
+            fallbackErr
+          ).slice(0, 200)}</code>`
+        )
+      );
+    }
   }
 }

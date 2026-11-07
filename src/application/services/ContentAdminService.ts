@@ -24,6 +24,22 @@ export class ContentAdminService {
     return this.contentRepo.findByNodeId(nodeId);
   }
 
+  async getAllContents(): Promise<NodeContent[]> {
+    return this.contentRepo.findAll();
+  }
+
+  async updateContentSource(
+    id: number,
+    sourceChatId: string,
+    sourceMessageId: number
+  ): Promise<void> {
+    await this.contentRepo.updateSourceLocation(
+      id,
+      sourceChatId,
+      sourceMessageId
+    );
+  }
+
   async getContentById(contentId: number): Promise<NodeContent | null> {
     return this.contentRepo.findById(contentId);
   }

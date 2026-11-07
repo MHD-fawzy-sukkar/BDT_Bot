@@ -1,4 +1,4 @@
-import { Composer, InlineKeyboard } from "grammy";
+import { Composer, InlineKeyboard, InputFile } from "grammy";
 import { Message } from "grammy/types";
 import { ContentType } from "../../domain/entities/NodeContent";
 import { BotContext } from "../context/BotContext";
@@ -20,6 +20,7 @@ import {
 import { escapeHtml } from "../keyboards/UserMenuKeyboard";
 import { adminGuard } from "../middlewares/adminGuard";
 import { deliverNodeContents } from "../utils/contentDelivery";
+import { SystemLogger } from "../utils/systemLogger";
 import { safeEditOrReply, tryDeleteMessage } from "../utils/telegramUi";
 
 export const adminHandlers = new Composer<BotContext>();
@@ -148,6 +149,274 @@ protectedAdmin.callbackQuery("a:stats", async (ctx) => {
     ctx,
     formatBotStatisticsText(stats),
     buildStatsKeyboard(),
+    true
+  );
+});
+
+// 5. أمر فحص توبيك السجلات (/test_logs)
+protectedAdmin.command("test_logs", async (ctx) => {
+  const adminGroupId = ctx.env.ADMIN_GROUP_ID?.trim();
+  const topicId = ctx.env.LOGS_TOPIC_ID?.trim();
+
+  if (!topicId) {
+    await ctx.reply("❌ لم يتم تحديد LOGS_TOPIC_ID في إعدادات السيرفر.");
+    return;
+  }
+
+  await SystemLogger.health(
+    ctx.api,
+    ctx.env,
+    "فحص الاتصال بتوبيك السجلات",
+    `✅ <b>توبيك السجلات متصل بنجاح!</b>\n\n• الغروب: <code>${adminGroupId}</code>\n• رقم التوبيك: <code>${topicId}</code>\n• التوقيت: <code>${new Date().toISOString()}</code>\n\nكافة تقارير الأعطال والمزامنة والنسخ الاحتياطي ستصل إلى هنا مباشرة.`
+  );
+
+  await ctx.reply("✅ تم إرسال رسالة فحص بنجاح إلى توبيك السجلات!");
+});
+
+// 6. أمر النسخ الاحتياطي الكامل فوراً (/backup)
+protectedAdmin.command("backup", async (ctx) => {
+  const statusMsg = await ctx.reply(
+    "⏳ جاري توليد وتحزيم النسخة الاحتياطية الكاملة..."
+  );
+
+  try {
+    const [nodes, contents] = await Promise.all([
+      ctx.services.navigation.getAllNodes(),
+      ctx.services.contentAdmin.getAllContents(),
+    ]);
+
+    const backupData = {
+      service: "BDT Telegram Educational Bot",
+      exported_at: new Date().toISOString(),
+      stats: {
+        total_nodes: nodes.length,
+        total_contents: contents.length,
+      },
+      nodes,
+      contents,
+    };
+
+    const jsonStr = JSON.stringify(backupData, null, 2);
+    const dateStr = new Date().toISOString().split("T")[0];
+    const filename = `bdt_bot_backup_${dateStr}.json`;
+    const fileBytes = new TextEncoder().encode(jsonStr);
+
+    await ctx.replyWithDocument(new InputFile(fileBytes, filename), {
+      caption:
+        `💾 <b>نسخة احتياطية كاملة لقاعدة بيانات البوت</b>\n\n` +
+        `• <b>تاريخ النسخة:</b> <code>${new Date().toISOString()}</code>\n` +
+        `• <b>عدد الأقسام والأزرار:</b> <b>${nodes.length}</b>\n` +
+        `• <b>عدد الملفات المسجلة:</b> <b>${contents.length}</b>\n\n` +
+        `✅ احتفظ بهذا الملف بأمان، يحتوي على كافة معرّفات الشجرة والملفات.`,
+      parse_mode: "HTML",
+    });
+
+    await tryDeleteMessage(ctx, String(ctx.chat.id), statusMsg.message_id);
+
+    ctx.runInBackground(
+      SystemLogger.info(
+        ctx.api,
+        ctx.env,
+        "نسخة احتياطية جديدة",
+        `💾 قام المشرف <b>${escapeHtml(
+          ctx.from?.first_name ?? "مشرف"
+        )}</b> (@${
+          ctx.from?.username ?? "بدون_يوزر"
+        }) بتوليد نسخة احتياطية كاملة (${nodes.length} زر، ${
+          contents.length
+        } ملف).`
+      )
+    );
+  } catch (err) {
+    await ctx.reply(`❌ فشل توليد النسخة الاحتياطية: ${String(err)}`);
+    ctx.runInBackground(
+      SystemLogger.error(ctx.api, ctx.env, "فشل إنشاء النسخة الاحتياطية", err)
+    );
+  }
+});
+
+// 7. أمر مزامنة ونقل الأرشيف إلى قناة المستودع الدائم (/sync_vault)
+protectedAdmin.command("sync_vault", async (ctx) => {
+  const storageChannelId = ctx.env.STORAGE_CHANNEL_ID?.trim();
+  if (!storageChannelId) {
+    await ctx.reply("❌ لم يتم ضبط معرف قناة التخزين STORAGE_CHANNEL_ID.");
+    return;
+  }
+
+  const allContents = await ctx.services.contentAdmin.getAllContents();
+  const pending = allContents.filter(
+    (c) => c.sourceChatId !== storageChannelId
+  );
+
+  if (pending.length === 0) {
+    await ctx.reply(
+      `✅ <b>جميع ملفات البوت (${allContents.length} ملف) مؤمنة ومربوطة بالفعل داخل قناة المستودع الدائم!</b>`,
+      { parse_mode: "HTML" }
+    );
+    return;
+  }
+
+  const kb = new InlineKeyboard()
+    .text(`🚀 بدء نقل الـ ${pending.length} ملف الآن`, "a:vault_start:0")
+    .row();
+
+  await ctx.reply(
+    `📦 <b>نظام مزامنة وتأمين الملفات في قناة المستودع</b>\n\n` +
+      `• إجمالي الملفات في البوت: <b>${allContents.length}</b>\n` +
+      `• الملفات المتبقي نقلها للمستودع: <b>${pending.length}</b>\n` +
+      `• قناة المستودع الهدف: <code>${storageChannelId}</code>\n\n` +
+      `سيتم النقل على دفعات آمنة ومنظمة مع إرسال تقارير حية ومباشرة في توبيك السجلات لمراقبة التقدم لحظياً.\n\n` +
+      `اضغط الزر بالأسفل للبدء 👇`,
+    { parse_mode: "HTML", reply_markup: kb }
+  );
+});
+
+protectedAdmin.callbackQuery(/^a:vault_start:(\d+)$/, async (ctx) => {
+  const storageChannelId = ctx.env.STORAGE_CHANNEL_ID?.trim();
+  if (!storageChannelId) {
+    await ctx.answerCallbackQuery({
+      text: "قناة المستودع غير معرّفة",
+      show_alert: true,
+    });
+    return;
+  }
+
+  await ctx.answerCallbackQuery({ text: "⏳ جاري نقل الدفعة..." });
+
+  const allContents = await ctx.services.contentAdmin.getAllContents();
+  const pending = allContents.filter(
+    (c) => c.sourceChatId !== storageChannelId
+  );
+
+  if (pending.length === 0) {
+    await safeEditOrReply(
+      ctx,
+      `🎉 <b>اكتملت مزامنة وتأمين كامل الأرشيف (${allContents.length} ملف) بنجاح 100%!</b>\n\nجميع الملفات أصبحت ثابتة ومحمية داخل قناة المستودع الدائم للأبد.`,
+      new InlineKeyboard(),
+      true
+    );
+    ctx.runInBackground(
+      SystemLogger.info(
+        ctx.api,
+        ctx.env,
+        "اكتملت مزامنة الأرشيف بالكامل",
+        `🎉 تم بنجاح نقل وتأمين جميع ملفات البوت (${allContents.length} ملف) داخل قناة المستودع الدائم <code>${storageChannelId}</code> وتحديث قاعدة البيانات بالكامل.`
+      )
+    );
+    return;
+  }
+
+  const batchSize = 25;
+  const currentBatch = pending.slice(0, batchSize);
+
+  let successCount = 0;
+  let failCount = 0;
+
+  for (const item of currentBatch) {
+    try {
+      let newMsgId: number | null = null;
+      // 1. محاولة النسخ من الرسالة الأصلية
+      try {
+        const copied = await ctx.api.copyMessage(
+          storageChannelId,
+          item.sourceChatId,
+          item.sourceMessageId
+        );
+        newMsgId = copied.message_id;
+      } catch {
+        // 2. إذا فشل النسخ، نرسل عبر file_id الاحتياطي
+        if (item.fileId) {
+          const caption = item.caption ?? undefined;
+          let sent: any;
+          switch (item.contentType) {
+            case "video":
+              sent = await ctx.api.sendVideo(storageChannelId, item.fileId, {
+                caption,
+              });
+              break;
+            case "audio":
+              sent = await ctx.api.sendAudio(storageChannelId, item.fileId, {
+                caption,
+              });
+              break;
+            case "voice":
+              sent = await ctx.api.sendVoice(storageChannelId, item.fileId, {
+                caption,
+              });
+              break;
+            case "photo":
+              sent = await ctx.api.sendPhoto(storageChannelId, item.fileId, {
+                caption,
+              });
+              break;
+            default:
+              sent = await ctx.api.sendDocument(
+                storageChannelId,
+                item.fileId,
+                { caption }
+              );
+              break;
+          }
+          if (sent && "message_id" in sent) {
+            newMsgId = sent.message_id;
+          }
+        }
+      }
+
+      if (newMsgId) {
+        await ctx.services.contentAdmin.updateContentSource(
+          item.id,
+          storageChannelId,
+          newMsgId
+        );
+        successCount++;
+      } else {
+        failCount++;
+      }
+    } catch (itemErr) {
+      failCount++;
+      console.warn(`[VaultSync] Failed item #${item.id}:`, itemErr);
+    }
+  }
+
+  const remaining = pending.length - successCount;
+  const totalTransferred = allContents.length - remaining;
+
+  // إرسال تقرير الدفعة في توبيك السجلات
+  ctx.runInBackground(
+    SystemLogger.info(
+      ctx.api,
+      ctx.env,
+      "تقدم مزامنة الأرشيف",
+      `📦 تم نقل دفعة جديدة (${successCount} ملف).\n• الإجمالي المنقول حتى الآن: <b>${totalTransferred} / ${allContents.length}</b>\n• المتبقي: <b>${remaining}</b>`
+    )
+  );
+
+  if (remaining <= 0) {
+    await safeEditOrReply(
+      ctx,
+      `🎉 <b>اكتملت مزامنة وتأمين كامل الأرشيف (${allContents.length} ملف) بنجاح 100%!</b>\n\nجميع الملفات أصبحت ثابتة ومحمية داخل قناة المستودع الدائم للأبد.`,
+      new InlineKeyboard(),
+      true
+    );
+    return;
+  }
+
+  const nextKb = new InlineKeyboard()
+    .text(
+      `▶️ متابعة نقل الدفعة التالية (${remaining} متبقي)`,
+      "a:vault_start:0"
+    )
+    .row();
+
+  await safeEditOrReply(
+    ctx,
+    `⏳ <b>جاري نقل وتأمين الملفات في المستودع...</b>\n\n` +
+      `• تم نقل وتثبيت: <b>${totalTransferred}</b> من أصل <b>${allContents.length}</b> ملف.\n` +
+      `• المتبقي الآن: <b>${remaining}</b> ملف.\n\n` +
+      `<i>(يمكنك مراقبة التقارير الحية في توبيك السجلات)</i>\n\n` +
+      `اضغط للمتابعة 👇`,
+    nextKb,
     true
   );
 });
@@ -740,16 +1009,52 @@ protectedAdmin.on("message", async (ctx, next) => {
       return;
     }
 
+    let finalSourceChatId = chatId;
+    let finalSourceMessageId = ctx.message.message_id;
+
+    // تأمين ونسخ فوري للملف داخل قناة المستودع الدائم
+    const storageChannelId = ctx.env.STORAGE_CHANNEL_ID?.trim();
+    if (storageChannelId && storageChannelId.length > 0) {
+      try {
+        const vaultCopy = await ctx.api.copyMessage(
+          storageChannelId,
+          chatId,
+          ctx.message.message_id
+        );
+        finalSourceChatId = storageChannelId;
+        finalSourceMessageId = vaultCopy.message_id;
+      } catch (vaultErr) {
+        console.warn(
+          "[VaultStorage] Failed to copy incoming file to vault channel:",
+          vaultErr
+        );
+      }
+    }
+
     const saved = await ctx.services.contentAdmin.attachContent({
       nodeId: session.targetNodeId,
       contentType: extracted.contentType,
-      sourceChatId: chatId,
-      sourceMessageId: ctx.message.message_id,
+      sourceChatId: finalSourceChatId,
+      sourceMessageId: finalSourceMessageId,
       fileId: extracted.fileId,
       title: extracted.title,
       caption: extracted.caption,
       isForwarded: extracted.isForwarded,
     });
+
+    // تسجيل في توبيك السجلات
+    ctx.runInBackground(
+      SystemLogger.info(
+        ctx.api,
+        ctx.env,
+        "إضافة محتوى جديد",
+        `📥 قام المشرف <b>${escapeHtml(
+          ctx.from?.first_name ?? "مشرف"
+        )}</b> بإضافة ملف جديد: <b>«${escapeHtml(
+          saved.title
+        )}»</b> إلى القسم <code>#${session.targetNodeId}</code> وتم تأمينه في المستودع.`
+      )
+    );
 
     const allContents = await ctx.services.contentAdmin.getContents(
       session.targetNodeId

@@ -3,6 +3,8 @@ export interface Env {
   readonly BOT_TOKEN: string;
   readonly ADMIN_GROUP_ID?: string;
   readonly ADMIN_USER_IDS?: string;
+  readonly LOGS_TOPIC_ID?: string;
+  readonly STORAGE_CHANNEL_ID?: string;
   readonly WEBHOOK_SECRET?: string;
 }
 

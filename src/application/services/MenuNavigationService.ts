@@ -85,6 +85,10 @@ export class MenuNavigationService {
     await this.userRepo.setCurrentNodeId(userId, nodeId);
   }
 
+  async getAllNodes(): Promise<MenuNodeWithCounts[]> {
+    return this.nodeRepo.findAllWithCounts();
+  }
+
   /**
    * البحث الدقيق عن الزر الذي ضغط عليه الطالب من الكيبورد السفلي:
    * 1. يبحث أولاً حصراً ضمن أزرار القسم المفتوح حالياً أمام الطالب لمنع أي تداخل بين المواد (مثل "طريقة الدراسة" علوم مقابل فرنسي أو "اختبارات القناة" فيزياء مقابل كيمياء).
