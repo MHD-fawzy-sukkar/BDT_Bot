@@ -726,16 +726,6 @@ protectedAdmin.callbackQuery(/^a:del_yes:(\d+)$/, async (ctx) => {
   await ctx.answerCallbackQuery({
     text: "✅ تم حذف الزر.",
   });
-  ctx.runInBackground(
-    SystemLogger.info(
-      ctx.api,
-      ctx.env,
-      "حذف زر/قسم",
-      `🗑️ قام المشرف <b>${escapeHtml(
-        ctx.from?.first_name ?? "مشرف"
-      )}</b> بحذف القسم <code>#${nodeId}</code>.`
-    )
-  );
   await renderAdminNode(ctx, parentId, true);
 });
 
@@ -809,19 +799,6 @@ protectedAdmin.callbackQuery(/^a:del_cnt:(\d+)$/, async (ctx) => {
   await ctx.answerCallbackQuery({
     text: "✅ تم حذف الملف.",
   });
-
-  ctx.runInBackground(
-    SystemLogger.info(
-      ctx.api,
-      ctx.env,
-      "حذف ملف من البوت",
-      `🗑️ قام المشرف <b>${escapeHtml(
-        ctx.from?.first_name ?? "مشرف"
-      )}</b> بحذف الملف: <b>«${escapeHtml(
-        deleted.title
-      )}»</b> من القسم <code>#${deleted.nodeId}</code>.`
-    )
-  );
 
   await renderContentListScreen(ctx, deleted.nodeId, true);
 });
@@ -990,52 +967,16 @@ protectedAdmin.on("message", async (ctx, next) => {
       return;
     }
 
-    let finalSourceChatId = chatId;
-    let finalSourceMessageId = ctx.message.message_id;
-
-    // تأمين ونسخ فوري للملف داخل قناة المستودع الدائم
-    const storageChannelId = ctx.env.STORAGE_CHANNEL_ID?.trim();
-    if (storageChannelId && storageChannelId.length > 0) {
-      try {
-        const vaultCopy = await ctx.api.copyMessage(
-          storageChannelId,
-          chatId,
-          ctx.message.message_id
-        );
-        finalSourceChatId = storageChannelId;
-        finalSourceMessageId = vaultCopy.message_id;
-      } catch (vaultErr) {
-        console.warn(
-          "[VaultStorage] Failed to copy incoming file to vault channel:",
-          vaultErr
-        );
-      }
-    }
-
     const saved = await ctx.services.contentAdmin.attachContent({
       nodeId: session.targetNodeId,
       contentType: extracted.contentType,
-      sourceChatId: finalSourceChatId,
-      sourceMessageId: finalSourceMessageId,
+      sourceChatId: chatId,
+      sourceMessageId: ctx.message.message_id,
       fileId: extracted.fileId,
       title: extracted.title,
       caption: extracted.caption,
       isForwarded: extracted.isForwarded,
     });
-
-    // تسجيل في توبيك السجلات
-    ctx.runInBackground(
-      SystemLogger.info(
-        ctx.api,
-        ctx.env,
-        "إضافة محتوى جديد",
-        `📥 قام المشرف <b>${escapeHtml(
-          ctx.from?.first_name ?? "مشرف"
-        )}</b> بإضافة ملف جديد: <b>«${escapeHtml(
-          saved.title
-        )}»</b> إلى القسم <code>#${session.targetNodeId}</code> وتم تأمينه في المستودع.`
-      )
-    );
 
     const allContents = await ctx.services.contentAdmin.getContents(
       session.targetNodeId

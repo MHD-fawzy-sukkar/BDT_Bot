@@ -228,4 +228,58 @@ export default {
 
     return new Response("Not Found", { status: 404 });
   },
+
+  /**
+   * الجدولة اليومية الآلية (Cron Trigger)
+   * تعمل تلقائياً الساعة 3:00 مساءً بتوقيت دمشق (12:00 UTC)
+   * تفحص أي ملفات جديدة تم رفعها أثناء اليوم وتنقلها بهدوء إلى قناة المستودع
+   */
+  async scheduled(
+    _event: ScheduledEvent,
+    env: Env,
+    executionCtx: ExecutionContext
+  ): Promise<void> {
+    const storageChannelId = env.STORAGE_CHANNEL_ID?.trim();
+    if (!storageChannelId) return;
+
+    try {
+      const bot = createBot(env, executionCtx);
+      const nodeRepo = new D1MenuNodeRepository(env.DB);
+      const contentRepo = new D1NodeContentRepository(env.DB);
+      const contentAdmin = new ContentAdminService(nodeRepo, contentRepo);
+
+      // مزامنة الملفات الجديدة المعلقة بهدوء
+      const result = await VaultSyncRunner.runBatch(
+        bot.api,
+        env,
+        contentAdmin,
+        50
+      );
+
+      // إشعار يومي في توبيك السجلات فقط إذا تم بالفعل نقل ملفات جديدة اليوم
+      if (result.transferredInThisStep > 0) {
+        await SystemLogger.info(
+          bot.api,
+          env,
+          "المزامنة اليومية المجدولة للمستودع",
+          `📦 <b>تمت المزامنة اليومية التلقائية بنجاح:</b>\n\n` +
+            `• تم نقل وتأمين: <b>${result.transferredInThisStep}</b> ملف جديد.\n` +
+            `• إجمالي الملفات في المستودع: <b>${result.totalTransferred} / ${result.total}</b>\n` +
+            `• شريط الإنجاز: [${result.progressBar}] <b>${result.percent}%</b>\n` +
+            `• التوقيت: <code>${new Date().toISOString()}</code>`
+        );
+      }
+    } catch (err) {
+      console.error("[ScheduledSyncError]:", err);
+      try {
+        const bot = createBot(env, executionCtx);
+        await SystemLogger.error(
+          bot.api,
+          env,
+          "خطأ في المزامنة اليومية المجدولة",
+          err
+        );
+      } catch {}
+    }
+  },
 };
