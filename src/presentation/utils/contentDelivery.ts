@@ -14,6 +14,8 @@ export async function deliverNodeContents(
   contents: NodeContent[],
   replyKeyboard?: Keyboard
 ): Promise<void> {
+  const storageChannelId = ctx.env.STORAGE_CHANNEL_ID?.trim();
+
   for (let i = 0; i < contents.length; i++) {
     const item = contents[i];
     const isLast = i === contents.length - 1;
@@ -21,12 +23,21 @@ export async function deliverNodeContents(
 
     let delivered = false;
 
-    // 1. إذا كانت الرسالة محولة بالأصل: نرسلها كـ Forward مع الاسم الأصلي
-    if (item.isForwarded) {
+    // إذا كان مصدر الرسالة هو قناة الأرشيف والمستودع:
+    // نمنع forwardMessage تماماً، لأن تيلغرام سيظهر للطلاب عبارة "محولة من قناة الأرشيف"
+    // بدلاً من ذلك، نستخدم copyMessage لتصل الرسالة مباشرة وبشكل أنيق "باسم البوت"
+    const isFromVault = Boolean(
+      storageChannelId && item.sourceChatId === storageChannelId
+    );
+
+    // 1. إذا كانت الرسالة محولة بالأصل ومصدرها غروب الأدمن (وليس قناة الأرشيف):
+    // نرسلها كـ Forward مع الاسم الأصلي للجهة أو القناة التي حُوِّل منها
+    if (item.isForwarded && !isFromVault) {
       delivered = await tryForwardMessage(ctx, targetChatId, item);
     }
 
-    // 2. إذا لم تكن محولة (أو فشل التحويل): ننسخها بـ copyMessage لتظهر باسم البوت
+    // 2. إذا كانت من قناة الأرشيف، أو لم تكن محولة، أو فشل التحويل:
+    // ننسخها بـ copyMessage لتظهر مباشرة وبشكل رسمي "باسم البوت"
     if (!delivered) {
       delivered = await tryCopyMessage(
         ctx,
@@ -36,7 +47,7 @@ export async function deliverNodeContents(
       );
     }
 
-    // 3. في حال حُذفت الرسالة من الغروب: نستخدم file_id الاحتياطي
+    // 3. في حال حُذفت الرسالة من الغروب/الأرشيف: نستخدم file_id الاحتياطي
     if (!delivered) {
       await tryFallbackDelivery(ctx, targetChatId, item, keyboardToAttach);
     }
