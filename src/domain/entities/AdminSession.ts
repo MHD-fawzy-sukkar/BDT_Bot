@@ -5,7 +5,9 @@ export type AdminActionType =
   | "RENAME_NODE"
   | "EDIT_NODE_DESC"
   | "ADD_CONTENT"
-  | "BROADCAST";
+  | "BROADCAST"
+  | "VAULT_SYNC_RUNNING"
+  | "VAULT_SYNC_STOPPED";
 
 export interface AdminSession {
   readonly userId: string;

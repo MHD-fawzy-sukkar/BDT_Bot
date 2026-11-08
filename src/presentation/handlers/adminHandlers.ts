@@ -22,7 +22,6 @@ import { adminGuard } from "../middlewares/adminGuard";
 import { deliverNodeContents } from "../utils/contentDelivery";
 import { SystemLogger } from "../utils/systemLogger";
 import { formatTelegramEntitiesToHtml, safeEditOrReply, tryDeleteMessage } from "../utils/telegramUi";
-import { VaultSyncRunner } from "../utils/vaultSyncRunner";
 
 export const adminHandlers = new Composer<BotContext>();
 
@@ -274,6 +273,27 @@ protectedAdmin.command("sync_vault", async (ctx) => {
   const filledBlocks = Math.round((percent / 100) * 5);
   const progressBar = "🟩".repeat(filledBlocks) + "⬜".repeat(5 - filledBlocks);
 
+  // Check if a sync is currently in progress
+  const syncSession = await ctx.services.menuAdmin.getSession(
+    "SYSTEM_VAULT_SYNC",
+    "GLOBAL"
+  );
+  if (syncSession?.action === "VAULT_SYNC_RUNNING") {
+    const stopKb = new InlineKeyboard().text(
+      "🛑 إيقاف المزامنة",
+      "a:vault_stop"
+    );
+    await ctx.reply(
+      `⏳ <b>عملية المزامنة والتأمين جارية حالياً في الخلفية...</b>\n\n` +
+        `[${progressBar}] <b>${percent}%</b>\n\n` +
+        `• المنقول والمؤمن: <b>${alreadyInVault} / ${allContents.length}</b> ملف\n` +
+        `• المتبقي: <b>${pending.length}</b> ملف\n\n` +
+        `<i>المزامنة تعمل تلقائياً دون توقف. يمكنك إيقافها بالضغط أدناه 👇</i>`,
+      { parse_mode: "HTML", reply_markup: stopKb }
+    );
+    return;
+  }
+
   const kb = new InlineKeyboard()
     .text(`🚀 بدء المزامنة والتأمين الشامل`, "a:vault_start:0")
     .row();
@@ -288,7 +308,7 @@ protectedAdmin.command("sync_vault", async (ctx) => {
       `• مؤمنة في المستودع مسبقاً: <b>${alreadyInVault}</b> ✅\n` +
       `• المتبقي لنقلها وتأمينها: <b>${pending.length}</b> ⏳\n` +
       `• قناة المستودع الهدف: <code>${storageChannelId}</code>\n\n` +
-      `💡 <i>سيتم تأمين كل الملفات في القناة كنسخة دائمة، مع الحفاظ الكامل على اسم الأستاذ/القناة الأصلية عند تسليم المحول.</i>\n\n` +
+      `💡 <i>المزامنة تعمل الآن بشكل تلقائي متواصل ومستمر في الخلفية دون الحاجة للنقر المتكرر.</i>\n\n` +
       `اضغط الزر بالأسفل للبدء 👇`,
     { parse_mode: "HTML", reply_markup: kb }
   );
@@ -304,62 +324,102 @@ protectedAdmin.callbackQuery(/^a:vault_start:(\d+)$/, async (ctx) => {
     return;
   }
 
-  // 1. Instant UI update to prevent perceived lag
-  await ctx.answerCallbackQuery({ text: "⏳ جاري نقل وتأمين الأرشيف..." });
+  const msgId = ctx.callbackQuery.message?.message_id;
+
+  // 1. Instant response to Telegram client to prevent loading spinner hang
+  await ctx.answerCallbackQuery({ text: "🚀 انطلقت المزامنة التلقائية الشاملة!" });
+
+  // 2. Set running flag in database
+  await ctx.services.menuAdmin.setSession(
+    "SYSTEM_VAULT_SYNC",
+    "GLOBAL",
+    "VAULT_SYNC_RUNNING",
+    null,
+    msgId ?? null
+  );
+
+  const allContents = await ctx.services.contentAdmin.getAllContents();
+  const pending = allContents.filter((c) => !c.vaultMessageId);
+  const alreadyInVault = allContents.length - pending.length;
+  const percent =
+    allContents.length > 0
+      ? Math.round((alreadyInVault / allContents.length) * 100)
+      : 100;
+  const filledBlocks = Math.round((percent / 100) * 5);
+  const progressBar =
+    "🟩".repeat(filledBlocks) + "⬜".repeat(5 - filledBlocks);
+
+  const stopKb = new InlineKeyboard().text(
+    "🛑 إيقاف المزامنة",
+    "a:vault_stop"
+  );
+
   await safeEditOrReply(
     ctx,
-    `⏳ <b>بدأت المزامنة التلقائية للأرشيف...</b>\n\n` +
-      `يرجى الانتظار، جاري النقل والتحديث المباشر لشريط الإنجاز...`,
-    new InlineKeyboard().text("⏳ جاري المزامنة الحية...", "a:noop"),
+    `⏳ <b>جاري نقل وتأمين الأرشيف في قناة المستودع...</b>\n\n` +
+      `[${progressBar}] <b>${percent}%</b>\n\n` +
+      `• تم تأمين: <b>${alreadyInVault} / ${allContents.length}</b> ملف\n` +
+      `• المتبقي: <b>${pending.length}</b> ملف\n\n` +
+      `🔄 <i>المزامنة تعمل الآن تلقائياً بالكامل في الخلفية دون الحاجة للنقر.</i>\n` +
+      `<i>(يتم إرسال تقارير دورية في توبيك السجلات)</i>`,
+    stopKb,
     true
   );
 
-  const result = await VaultSyncRunner.runBatch(
-    ctx.api,
-    ctx.env,
-    ctx.services.contentAdmin,
-    15,
-    async (progress) => {
-      await safeEditOrReply(
-        ctx,
-        `⏳ <b>جاري نقل وتأمين الأرشيف في المستودع...</b>\n\n` +
-          `[${progress.progressBar}] <b>${progress.percent}%</b>\n\n` +
-          `• تم تأمين: <b>${progress.transferred} / ${progress.total}</b> ملف\n` +
-          `• المتبقي: <b>${progress.remaining}</b> ملف\n\n` +
-          `<i>جاري المزامنة الحية...</i>`,
-        new InlineKeyboard().text("⏳ جاري المزامنة الحية...", "a:noop"),
-        true
-      );
-    }
+  // 3. Trigger asynchronous background chain
+  const originUrl =
+    ctx.env.WORKER_URL ||
+    "https://bdt-telegram-bot.fawzy-sukkar2005.workers.dev";
+  const chatId = ctx.chat?.id;
+  const syncUrl = `${originUrl}/api/sync-vault-step?key=bdt_sync_vault_2026&chatId=${chatId}&msgId=${msgId}&origin=${encodeURIComponent(
+    originUrl
+  )}&batch=25`;
+
+  ctx.runInBackground(
+    fetch(syncUrl, { method: "POST" }).catch((err) =>
+      console.error("[AdminHandler] Failed to trigger background sync step:", err)
+    )
+  );
+});
+
+protectedAdmin.callbackQuery("a:vault_stop", async (ctx) => {
+  const msgId = ctx.callbackQuery.message?.message_id;
+
+  // 1. Instant response
+  await ctx.answerCallbackQuery({ text: "🛑 تم إيقاف المزامنة." });
+
+  // 2. Set cancellation flag in database
+  await ctx.services.menuAdmin.setSession(
+    "SYSTEM_VAULT_SYNC",
+    "GLOBAL",
+    "VAULT_SYNC_STOPPED",
+    null,
+    msgId ?? null
   );
 
-  if (result.isComplete) {
-    await safeEditOrReply(
-      ctx,
-      `🎉 <b>اكتملت مزامنة وتأمين كامل الأرشيف (${result.total} ملف) بنجاح 100%!</b>\n\n[${result.progressBar}] 100%\n\nجميع الملفات أصبحت ثابتة ومحمية داخل قناة المستودع الدائم للأبد.`,
-      new InlineKeyboard(),
-      true
-    );
-    return;
-  }
+  const allContents = await ctx.services.contentAdmin.getAllContents();
+  const pending = allContents.filter((c) => !c.vaultMessageId);
+  const alreadyInVault = allContents.length - pending.length;
+  const percent =
+    allContents.length > 0
+      ? Math.round((alreadyInVault / allContents.length) * 100)
+      : 100;
+  const filledBlocks = Math.round((percent / 100) * 5);
+  const progressBar =
+    "🟩".repeat(filledBlocks) + "⬜".repeat(5 - filledBlocks);
 
-  const nextBatchCount = Math.min(result.remaining, 15);
-  const nextKb = new InlineKeyboard()
-    .text(
-      `🚀 استمرار المزامنة (${nextBatchCount} ملف)`,
-      "a:vault_start:0"
-    )
+  const resumeKb = new InlineKeyboard()
+    .text("🚀 استئناف المزامنة", "a:vault_start:0")
     .row();
 
   await safeEditOrReply(
     ctx,
-    `📦 <b>تقدم مزامنة وتأمين الأرشيف في المستودع</b>\n\n` +
-      `[${result.progressBar}] <b>${result.percent}%</b>\n\n` +
-      `• تم تأمين ونقل: <b>${result.totalTransferred}</b> من أصل <b>${result.total}</b> ملف.\n` +
-      `• المتبقي لنقله: <b>${result.remaining}</b> ملف.\n\n` +
-      `<i>(التقارير الحية تنزل لحظياً في توبيك السجلات)</i>\n\n` +
-      `اضغط للمتابعة 👇`,
-    nextKb,
+    `🛑 <b>تم إيقاف المزامنة بناءً على طلبك</b>\n\n` +
+      `[${progressBar}] <b>${percent}%</b>\n\n` +
+      `• الملفات المؤمنة حتى الآن: <b>${alreadyInVault} / ${allContents.length}</b> ملف\n` +
+      `• المتبقي: <b>${pending.length}</b> ملف\n\n` +
+      `<i>يمكنك استئناف المزامنة في أي وقت بالضغط على الزر أدناه 👇</i>`,
+    resumeKb,
     true
   );
 });

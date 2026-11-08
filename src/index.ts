@@ -1,10 +1,12 @@
-import { webhookCallback } from "grammy";
+import { InlineKeyboard, webhookCallback } from "grammy";
 import { Env } from "./infrastructure/config/Env";
 import { createBot } from "./presentation/bot";
 import { SystemLogger } from "./presentation/utils/systemLogger";
 import { D1MenuNodeRepository } from "./infrastructure/database/D1MenuNodeRepository";
 import { D1NodeContentRepository } from "./infrastructure/database/D1NodeContentRepository";
+import { D1AdminSessionRepository } from "./infrastructure/database/D1AdminSessionRepository";
 import { ContentAdminService } from "./application/services/ContentAdminService";
+import { MenuAdminService } from "./application/services/MenuAdminService";
 import { VaultSyncRunner } from "./presentation/utils/vaultSyncRunner";
 
 export default {
@@ -65,13 +67,157 @@ export default {
         );
       }
 
+      const chatId = url.searchParams.get("chatId");
+      const msgId = url.searchParams.get("msgId");
+      const originUrl =
+        url.searchParams.get("origin") ||
+        env.WORKER_URL ||
+        url.origin ||
+        "https://bdt-telegram-bot.fawzy-sukkar2005.workers.dev";
+      const batchSize = Number(url.searchParams.get("batch")) || 25;
+
+      // If called with chatId and msgId, process in background and chain steps automatically
+      if (chatId && msgId) {
+        executionCtx.waitUntil(
+          (async () => {
+            try {
+              const bot = createBot(env);
+              const nodeRepo = new D1MenuNodeRepository(env.DB);
+              const contentRepo = new D1NodeContentRepository(env.DB);
+              const sessionRepo = new D1AdminSessionRepository(env.DB);
+              const contentAdmin = new ContentAdminService(
+                nodeRepo,
+                contentRepo
+              );
+              const menuAdmin = new MenuAdminService(nodeRepo, sessionRepo);
+
+              // 1. Check if user cancelled sync
+              const session = await menuAdmin.getSession(
+                "SYSTEM_VAULT_SYNC",
+                "GLOBAL"
+              );
+              if (session?.action !== "VAULT_SYNC_RUNNING") {
+                console.log(
+                  "[SyncVault] Sync aborted: session is not RUNNING"
+                );
+                return;
+              }
+
+              // 2. Run batch
+              const result = await VaultSyncRunner.runBatch(
+                bot.api,
+                env,
+                contentAdmin,
+                batchSize,
+                undefined,
+                async () => {
+                  const check = await menuAdmin.getSession(
+                    "SYSTEM_VAULT_SYNC",
+                    "GLOBAL"
+                  );
+                  return check?.action !== "VAULT_SYNC_RUNNING";
+                }
+              );
+
+              // 3. Check again if cancelled during batch execution
+              const postCheck = await menuAdmin.getSession(
+                "SYSTEM_VAULT_SYNC",
+                "GLOBAL"
+              );
+              if (postCheck?.action !== "VAULT_SYNC_RUNNING") {
+                console.log(
+                  "[SyncVault] Sync aborted mid-batch by user cancellation"
+                );
+                return;
+              }
+
+              const numChatId = Number(chatId) || chatId;
+              const numMsgId = Number(msgId);
+
+              if (result.isComplete) {
+                // All items completed!
+                await bot.api
+                  .editMessageText(
+                    numChatId,
+                    numMsgId,
+                    `🎉 <b>اكتملت مزامنة وتأمين كامل الأرشيف (${result.total} ملف) بنجاح 100%!</b>\n\n` +
+                      `[🟩🟩🟩🟩🟩] 100%\n\n` +
+                      `✅ جميع الملفات (المباشرة والمحولة) أصبحت ثابتة ومحمية داخل قناة المستودع الدائم للأبد.`,
+                    { parse_mode: "HTML" }
+                  )
+                  .catch((err) =>
+                    console.warn(
+                      "[SyncVault] Error updating complete message:",
+                      err
+                    )
+                  );
+
+                await menuAdmin.setSession(
+                  "SYSTEM_VAULT_SYNC",
+                  "GLOBAL",
+                  "IDLE",
+                  null,
+                  null
+                );
+              } else {
+                // Update UI once per batch with current status
+                const stopKb = new InlineKeyboard().text(
+                  "🛑 إيقاف المزامنة",
+                  "a:vault_stop"
+                );
+                await bot.api
+                  .editMessageText(
+                    numChatId,
+                    numMsgId,
+                    `⏳ <b>جاري نقل وتأمين الأرشيف في المستودع...</b>\n\n` +
+                      `[${result.progressBar}] <b>${result.percent}%</b>\n\n` +
+                      `• تم تأمين: <b>${result.totalTransferred} / ${result.total}</b> ملف\n` +
+                      `• المتبقي: <b>${result.remaining}</b> ملف\n\n` +
+                      `🔄 <i>المزامنة مستمرة تلقائياً في الخلفية دفعة تلو الأخرى...</i>\n` +
+                      `<i>(يتم إرسال تقارير دورية في توبيك السجلات)</i>`,
+                    { parse_mode: "HTML", reply_markup: stopKb }
+                  )
+                  .catch((err) =>
+                    console.warn(
+                      "[SyncVault] Error updating progress message:",
+                      err
+                    )
+                  );
+
+                // 4. Chain next step via fetch
+                const nextStepUrl = `${originUrl}/api/sync-vault-step?key=bdt_sync_vault_2026&chatId=${chatId}&msgId=${msgId}&origin=${encodeURIComponent(
+                  originUrl
+                )}&batch=${batchSize}`;
+
+                await fetch(nextStepUrl, { method: "POST" }).catch((err) =>
+                  console.error("[SyncVault] Error calling next step:", err)
+                );
+              }
+            } catch (bgErr) {
+              console.error("[SyncVault] Background error:", bgErr);
+            }
+          })()
+        );
+
+        return new Response(
+          JSON.stringify({
+            status: "accepted",
+            message: "Batch running in background",
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json; charset=utf-8" },
+          }
+        );
+      }
+
+      // Fallback synchronous execution if chatId/msgId not provided (e.g. CLI or direct test)
       try {
         const bot = createBot(env, executionCtx);
         const nodeRepo = new D1MenuNodeRepository(env.DB);
         const contentRepo = new D1NodeContentRepository(env.DB);
         const contentAdmin = new ContentAdminService(nodeRepo, contentRepo);
 
-        const batchSize = Number(url.searchParams.get("batch")) || 15;
         const result = await VaultSyncRunner.runBatch(
           bot.api,
           env,

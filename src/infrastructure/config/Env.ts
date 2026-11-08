@@ -6,6 +6,7 @@ export interface Env {
   readonly LOGS_TOPIC_ID?: string;
   readonly STORAGE_CHANNEL_ID?: string;
   readonly WEBHOOK_SECRET?: string;
+  readonly WORKER_URL?: string;
 }
 
 export function parseAdminUserIds(raw?: string): Set<string> {

@@ -27,8 +27,9 @@ export class VaultSyncRunner {
     api: Api,
     env: Env,
     contentAdmin: ContentAdminService,
-    batchSize: number = 10,
-    onProgress?: (progress: VaultSyncProgressUpdate) => Promise<void>
+    batchSize: number = 25,
+    onProgress?: (progress: VaultSyncProgressUpdate) => Promise<void>,
+    isCancelled?: () => Promise<boolean>
   ): Promise<VaultSyncResult> {
     const storageChannelId = env.STORAGE_CHANNEL_ID?.trim();
     if (!storageChannelId) {
@@ -61,6 +62,11 @@ export class VaultSyncRunner {
     let failedCount = 0;
 
     for (let i = 0; i < currentBatch.length; i++) {
+      if (isCancelled && (await isCancelled())) {
+        console.log("[VaultSyncRunner] Synchronization stopped early by user request.");
+        break;
+      }
+
       const item = currentBatch[i];
       try {
         let newMsgId: number | null = null;
@@ -73,59 +79,78 @@ export class VaultSyncRunner {
             item.sourceMessageId
           );
           newMsgId = copied.message_id;
-        } catch {
-          // 2. Fallback: send text or media via cached file_id
-          if (item.contentType === "text") {
-            const textToSend = item.caption || item.title || "";
-            if (textToSend.length > 0) {
-              const sentText = await api.sendMessage(
+        } catch (copyErr: any) {
+          // If Telegram hit rate limit 429, wait retry_after and retry once
+          if (copyErr?.parameters?.retry_after) {
+            const waitSec = Number(copyErr.parameters.retry_after) || 2;
+            console.warn(`[VaultSyncRunner] Rate limit 429 on copyMessage, backing off for ${waitSec}s`);
+            await new Promise((resolve) => setTimeout(resolve, (waitSec + 1) * 1000));
+            try {
+              const copiedRetry = await api.copyMessage(
                 storageChannelId,
-                textToSend
+                item.sourceChatId,
+                item.sourceMessageId
               );
-              newMsgId = sentText.message_id;
+              newMsgId = copiedRetry.message_id;
+            } catch {
+              // fall through to fallback 2
             }
-          } else if (item.fileId) {
-            const caption = item.caption ?? undefined;
-            let sentMedia: any;
-            switch (item.contentType) {
-              case "video":
-                sentMedia = await api.sendVideo(
+          }
+
+          if (!newMsgId) {
+            // 2. Fallback: send text or media via cached file_id
+            if (item.contentType === "text") {
+              const textToSend = item.caption || item.title || "";
+              if (textToSend.length > 0) {
+                const sentText = await api.sendMessage(
                   storageChannelId,
-                  item.fileId,
-                  { caption }
+                  textToSend
                 );
-                break;
-              case "audio":
-                sentMedia = await api.sendAudio(
-                  storageChannelId,
-                  item.fileId,
-                  { caption }
-                );
-                break;
-              case "voice":
-                sentMedia = await api.sendVoice(
-                  storageChannelId,
-                  item.fileId,
-                  { caption }
-                );
-                break;
-              case "photo":
-                sentMedia = await api.sendPhoto(
-                  storageChannelId,
-                  item.fileId,
-                  { caption }
-                );
-                break;
-              default:
-                sentMedia = await api.sendDocument(
-                  storageChannelId,
-                  item.fileId,
-                  { caption }
-                );
-                break;
-            }
-            if (sentMedia && "message_id" in sentMedia) {
-              newMsgId = sentMedia.message_id;
+                newMsgId = sentText.message_id;
+              }
+            } else if (item.fileId) {
+              const caption = item.caption ?? undefined;
+              let sentMedia: any;
+              switch (item.contentType) {
+                case "video":
+                  sentMedia = await api.sendVideo(
+                    storageChannelId,
+                    item.fileId,
+                    { caption }
+                  );
+                  break;
+                case "audio":
+                  sentMedia = await api.sendAudio(
+                    storageChannelId,
+                    item.fileId,
+                    { caption }
+                  );
+                  break;
+                case "voice":
+                  sentMedia = await api.sendVoice(
+                    storageChannelId,
+                    item.fileId,
+                    { caption }
+                  );
+                  break;
+                case "photo":
+                  sentMedia = await api.sendPhoto(
+                    storageChannelId,
+                    item.fileId,
+                    { caption }
+                  );
+                  break;
+                default:
+                  sentMedia = await api.sendDocument(
+                    storageChannelId,
+                    item.fileId,
+                    { caption }
+                  );
+                  break;
+              }
+              if (sentMedia && "message_id" in sentMedia) {
+                newMsgId = sentMedia.message_id;
+              }
             }
           }
         }
@@ -147,8 +172,7 @@ export class VaultSyncRunner {
           failedCount++;
         }
 
-        // Live progress update on Telegram UI every 3 items or at end of batch
-        if (onProgress && ((i + 1) % 3 === 0 || i === currentBatch.length - 1)) {
+        if (onProgress) {
           const curTransferred = alreadyInVault + transferredInThisStep;
           const curRemaining = targetContents.length - curTransferred;
           const curPercent = Math.round(
@@ -171,8 +195,8 @@ export class VaultSyncRunner {
           }
         }
 
-        // Rate limiting buffer: 250ms delay between Telegram API calls
-        await new Promise((resolve) => setTimeout(resolve, 250));
+        // Rate limiting buffer: 200ms delay between Telegram API calls
+        await new Promise((resolve) => setTimeout(resolve, 200));
       } catch (itemErr) {
         failedCount++;
         console.warn(`[VaultSyncRunner] Failed item #${item.id}:`, itemErr);

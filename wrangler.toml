@@ -23,6 +23,9 @@ LOGS_TOPIC_ID = "2074"
 # Immutable vault channel ID for permanent asset storage
 STORAGE_CHANNEL_ID = "-1004388493605"
 
+# Worker public URL for background job self-invocation
+WORKER_URL = "https://bdt-telegram-bot.fawzy-sukkar2005.workers.dev"
+
 # Optional comma-separated admin user IDs; empty allows all admins in the admin group
 ADMIN_USER_IDS = ""
 
