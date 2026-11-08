@@ -6,6 +6,7 @@ import {
 } from "../../domain/entities/MenuNode";
 import { IMenuNodeRepository } from "../../domain/repositories/IMenuNodeRepository";
 import { TreeMemoryCache } from "../cache/TreeMemoryCache";
+import { normalizeArabic } from "../../presentation/utils/arabicText";
 
 interface MenuNodeRow {
   id: number;
@@ -60,20 +61,54 @@ export class D1MenuNodeRepository implements IMenuNodeRepository {
     const trimmed = title.trim().replace(/\s+/g, " ");
     const snapshot = await TreeMemoryCache.getSnapshot(this.db);
     const children = snapshot.childrenByParent.get(parentId) ?? [];
+
+    // 1. Exact string match
+    const exact = children.find(
+      (c) => c.title.trim().replace(/\s+/g, " ") === trimmed
+    );
+    if (exact) return exact;
+
+    // 2. Normalized Arabic match (ignores tashkeel/harakat, shadda, alef variants, ta marbuta)
+    const normSearch = normalizeArabic(trimmed);
+    if (!normSearch) return null;
+
     return (
-      children.find((c) => c.title.trim().replace(/\s+/g, " ") === trimmed) ??
-      null
+      children.find((c) => normalizeArabic(c.title) === normSearch) ?? null
     );
   }
 
   async findUniqueByTitle(title: string): Promise<MenuNode | null> {
     const trimmed = title.trim().replace(/\s+/g, " ");
     const snapshot = await TreeMemoryCache.getSnapshot(this.db);
-    const matches = snapshot.allNodes.filter(
+
+    // 1. Exact match check
+    const exactMatches = snapshot.allNodes.filter(
       (c) => c.title.trim().replace(/\s+/g, " ") === trimmed
     );
-    // Only resolve globally if title is 100% unique across all sections to avoid cross-subject ambiguity
-    return matches.length === 1 ? matches[0] : null;
+    if (exactMatches.length === 1) return exactMatches[0];
+
+    // 2. Normalized Arabic match check
+    const normSearch = normalizeArabic(trimmed);
+    if (!normSearch) return null;
+
+    const normMatches = snapshot.allNodes.filter(
+      (c) => normalizeArabic(c.title) === normSearch
+    );
+    if (normMatches.length === 1) {
+      return normMatches[0];
+    }
+
+    // 3. Tie-breaker: if multiple normalized matches exist, but only one is an exact match
+    if (normMatches.length > 1) {
+      const exactInNorm = normMatches.filter(
+        (c) => c.title.trim().replace(/\s+/g, " ") === trimmed
+      );
+      if (exactInNorm.length === 1) {
+        return exactInNorm[0];
+      }
+    }
+
+    return null;
   }
 
   async findAllWithCounts(): Promise<MenuNodeWithCounts[]> {

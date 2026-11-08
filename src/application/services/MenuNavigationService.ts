@@ -134,7 +134,21 @@ export class MenuNavigationService {
       }
     }
 
-    // 4. Global fallback: only match if completely unique
+    // 4. Search children of top-level categories (e.g. subjects under "مواد البكالوريا العلمي")
+    const rootNodes = await this.nodeRepo.findChildren(null);
+    for (const rootNode of rootNodes) {
+      // Avoid re-searching currentParentId if already checked in step 1
+      if (rootNode.id === currentParentId) continue;
+      const childOfRoot = await this.nodeRepo.findChildByTitle(
+        rootNode.id,
+        cleanText
+      );
+      if (childOfRoot) {
+        return childOfRoot;
+      }
+    }
+
+    // 5. Global fallback: only match if completely unique
     return this.nodeRepo.findUniqueByTitle(cleanText);
   }
 

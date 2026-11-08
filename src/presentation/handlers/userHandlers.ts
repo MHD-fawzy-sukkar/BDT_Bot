@@ -9,6 +9,7 @@ import {
   HOME_BUTTON_TEXT,
 } from "../keyboards/UserMenuKeyboard";
 import { deliverNodeContents } from "../utils/contentDelivery";
+import { normalizeArabic } from "../utils/arabicText";
 
 export const userHandlers = new Composer<BotContext>();
 
@@ -73,22 +74,26 @@ userHandlers.on("message:text", async (ctx, next) => {
   const userId = String(ctx.from.id);
 
   // A) Tap on "Home" button
+  const cleanHome = text.replace(/[🏠🏡]/g, "").trim();
   if (
     text === HOME_BUTTON_TEXT ||
-    text === "🏠 القائمة الرئيسية" ||
-    text === "الرئيسية" ||
-    text === "القائمة الرئيسية"
+    cleanHome === "الرئيسية" ||
+    cleanHome === "القائمة الرئيسية" ||
+    normalizeArabic(cleanHome) === normalizeArabic("الرئيسية") ||
+    normalizeArabic(cleanHome) === normalizeArabic("القائمة الرئيسية")
   ) {
     await showUserNodeKeyboard(ctx, userId, null);
     return;
   }
 
   // B) Tap on "Back" button
+  const cleanBack = text.replace(/[↩️🔙◀️⬅️]/g, "").trim();
   if (
     text === BACK_BUTTON_TEXT ||
-    text === "🔙 رجوع خطوة" ||
-    text === "رجوع" ||
-    text === "رجوع خطوة"
+    cleanBack === "رجوع" ||
+    cleanBack === "رجوع خطوة" ||
+    normalizeArabic(cleanBack) === normalizeArabic("رجوع") ||
+    normalizeArabic(cleanBack) === normalizeArabic("رجوع خطوة")
   ) {
     const currentNode =
       await ctx.services.navigation.getValidUserCurrentNode(userId);
@@ -153,6 +158,7 @@ async function handleStudentNodeSelection(
     !view.currentNode?.description
   ) {
     const parentId = view.currentNode?.parentId ?? null;
+    await ctx.services.navigation.setUserCurrentNodeId(userId, parentId);
     const parentView = await ctx.services.navigation.getMenuView(parentId);
     await ctx.reply("سيتم إضافة محتوى هذا القسم قريباً ⏳", {
       reply_markup: buildUserReplyKeyboard(parentView),
