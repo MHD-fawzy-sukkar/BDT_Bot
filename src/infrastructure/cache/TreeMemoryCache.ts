@@ -39,10 +39,11 @@ export interface TreeSnapshot {
   readonly loadedAt: number;
 }
 
-// كاش في الذاكرة السريعة للـ Worker (يدوم طوال حياة الـ Isolate ويتحدث فوراً عند أي تعديل من الأدمن)
+// In-memory LRU-style cache for Cloudflare Worker isolate.
+// Lasts throughout the isolate lifecycle and invalidates immediately on admin mutation.
 let cachedSnapshot: TreeSnapshot | null = null;
 let pendingLoadPromise: Promise<TreeSnapshot> | null = null;
-const CACHE_TTL_MS = 60_000; // دقيقة واحدة كحد أقصى أو يتحدث فوراً عند أي تعديل
+const CACHE_TTL_MS = 60_000; // 1 minute TTL or immediate invalidation on write
 
 export class TreeMemoryCache {
   static invalidate(): void {
@@ -66,7 +67,7 @@ export class TreeMemoryCache {
           "[TreeMemoryCache] Error refreshing snapshot from D1:",
           err
         );
-        // صمام أمان: إذا حدث خطأ مؤقت في الاتصال بـ D1 نستخدم آخر نسخة صالحة في الذاكرة
+        // Safety fallback: if temporary D1 outage occurs, serve stale cache
         if (cachedSnapshot) {
           console.warn(
             "[TreeMemoryCache] Serving stale snapshot fallback to prevent downtime"
@@ -83,7 +84,7 @@ export class TreeMemoryCache {
   }
 
   private static async loadFromDatabase(db: D1Database): Promise<TreeSnapshot> {
-    // جلب كل الأزرار والمحتويات في طلب واحد مدمج (Single Batch Round-Trip)
+    // Fetch all nodes and contents in a single round-trip batch
     const [nodesRes, contentsRes] = await db.batch<
       MenuNodeRow | NodeContentRow
     >([
@@ -121,7 +122,7 @@ export class TreeMemoryCache {
       contentsByNodeId.set(item.nodeId, list);
     }
 
-    // حساب عدد الأبناء لكل زر
+    // Compute child counts for each node
     const childCountMap = new Map<number, number>();
     for (const row of nodeRows) {
       if (row.parent_id !== null) {

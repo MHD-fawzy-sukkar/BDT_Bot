@@ -13,7 +13,8 @@ import { deliverNodeContents } from "../utils/contentDelivery";
 export const userHandlers = new Composer<BotContext>();
 
 /**
- * إرسال رسالة خفيفة جداً مع تحديث الكيبورد السفلي وحفظ موقع الطالب فوراً لضمان دقة التنقل
+ * Sends a lightweight menu prompt, updates the reply keyboard,
+ * and saves user position in database for stateful navigation.
  */
 async function showUserNodeKeyboard(
   ctx: BotContext,
@@ -21,7 +22,7 @@ async function showUserNodeKeyboard(
   nodeId: number | null,
   preloadedView?: MenuViewData
 ): Promise<void> {
-  // حفظ موقع الطالب بدقة في قاعدة البيانات (يستغرق ~0.5ms) لمنع أي تداخل بين الأقسام
+  // Persist user location to avoid collisions during concurrent taps (~0.5ms)
   await ctx.services.navigation.setUserCurrentNodeId(userId, nodeId);
 
   const view =
@@ -35,7 +36,7 @@ async function showUserNodeKeyboard(
   });
 }
 
-// 1. أمر البداية (/start) في المحادثة الخاصة مع الطالب
+// 1. /start command in private student chat
 userHandlers.command("start", async (ctx, next) => {
   if (ctx.chat?.type !== "private") {
     return next();
@@ -44,7 +45,7 @@ userHandlers.command("start", async (ctx, next) => {
   await showUserNodeKeyboard(ctx, userId, null);
 });
 
-// دعم التوافق مع أي أزرار قديمة إن وجدت
+// Backward compatibility for root callback queries
 userHandlers.callbackQuery("u:root", async (ctx) => {
   await ctx.answerCallbackQuery();
   if (!ctx.from) return;
@@ -58,7 +59,7 @@ userHandlers.callbackQuery(/^u:nav:(\d+)$/, async (ctx) => {
   await handleStudentNodeSelection(ctx, String(ctx.from.id), nodeId);
 });
 
-// 2. استقبال ضغطات أزرار الكيبورد السفلي في المحادثة الخاصة للطالب
+// 2. Handle reply keyboard button taps in student private chat
 userHandlers.on("message:text", async (ctx, next) => {
   if (ctx.chat.type !== "private") {
     return next();
@@ -71,7 +72,7 @@ userHandlers.on("message:text", async (ctx, next) => {
 
   const userId = String(ctx.from.id);
 
-  // أ) الضغط على زر "🏠 الرئيسية"
+  // A) Tap on "Home" button
   if (
     text === HOME_BUTTON_TEXT ||
     text === "🏠 القائمة الرئيسية" ||
@@ -82,7 +83,7 @@ userHandlers.on("message:text", async (ctx, next) => {
     return;
   }
 
-  // ب) الضغط على زر "↩️ رجوع"
+  // B) Tap on "Back" button
   if (
     text === BACK_BUTTON_TEXT ||
     text === "🔙 رجوع خطوة" ||
@@ -96,20 +97,23 @@ userHandlers.on("message:text", async (ctx, next) => {
     return;
   }
 
-  // ج) الضغط على زر "📄 ملفات هذا القسم" (عندما يحتوي المجلد ملفات عامة مع أزراره الفرعية)
+  // C) Tap on general files button (when folder contains non-text media files alongside child buttons)
   if (text.startsWith(GENERAL_FILES_BUTTON_PREFIX)) {
     const currentNode =
       await ctx.services.navigation.getValidUserCurrentNode(userId);
     if (currentNode && ctx.chat?.id) {
       const view = await ctx.services.navigation.getMenuView(currentNode.id);
-      if (view.contents.length > 0) {
-        await deliverNodeContents(ctx, ctx.chat.id, view.contents);
+      const nonTextContents = view.contents.filter(
+        (c) => c.contentType !== "text"
+      );
+      if (nonTextContents.length > 0) {
+        await deliverNodeContents(ctx, ctx.chat.id, nonTextContents);
         return;
       }
     }
   }
 
-  // د) البحث عن الزر الذي ضغط عليه الطالب ضمن القسم المفتوح أمامه (من الكاش في 0ms)
+  // D) Resolve button tap within open section (zero-latency in-memory lookup)
   const targetNode = await ctx.services.navigation.resolveNodeByButtonText(
     userId,
     text
@@ -135,14 +139,14 @@ async function handleStudentNodeSelection(
   userId: string,
   nodeId: number
 ): Promise<void> {
-  // زيادة عداد المشاهدات في الخلفية بدون تأخير رد الطالب
+  // Increment view counter in background without blocking response
   ctx.runInBackground(ctx.services.statsAndBroadcast.trackNodeView(nodeId));
 
   const view = await ctx.services.navigation.getMenuView(nodeId);
   const chatId = ctx.chat?.id;
   if (!chatId) return;
 
-  // 1. إذا كان الزر فارغاً لم يُضف فيه محتوى بعد:
+  // 1. If button has no content, no description, and no children yet
   if (
     view.children.length === 0 &&
     view.contents.length === 0 &&
@@ -156,8 +160,8 @@ async function handleStudentNodeSelection(
     return;
   }
 
-  // 2. إذا كان الزر يوصل لمحتوى (ملفات أو رسائل) وليس له أزرار فرعية بداخله:
-  // نرسل الملفات فقط فوراً بدون أي رسائل زائدة!
+  // 2. If button is an endpoint node containing content without sub-buttons:
+  // Deliver content directly with the parent navigation keyboard attached to the last item
   if (view.contents.length > 0 && view.children.length === 0) {
     const parentId = view.currentNode?.parentId ?? null;
     await ctx.services.navigation.setUserCurrentNodeId(userId, parentId);
@@ -168,7 +172,7 @@ async function handleStudentNodeSelection(
     return;
   }
 
-  // 3. إذا كان الزر يحتوي أزراراً فرعية (مجلد)، سواء كان معه ملفات عامة أم لا:
-  // نفتح كيبورد القسم مباشرة بدون إلقاء الملفات قسراً! (الملفات العامة تظهر كزر مخصص بأعلى الكيبورد)
+  // 3. If button is a category folder with sub-buttons:
+  // Open the category keyboard and display any custom message/description
   await showUserNodeKeyboard(ctx, userId, nodeId, view);
 }

@@ -8,11 +8,11 @@ interface ErrorThrottleItem {
 }
 
 const errorThrottleMap = new Map<string, ErrorThrottleItem>();
-const THROTTLE_WINDOW_MS = 60_000; // نافذة كبح التكرار: دقيقة واحدة
+const THROTTLE_WINDOW_MS = 60_000; // Anti-flood window: 1 minute
 
 export class SystemLogger {
   /**
-   * إرسال رسالة معلومات عامة إلى توبيك السجلات
+   * Sends an informational log message to the audit topic.
    */
   static async info(
     api: Api,
@@ -20,11 +20,15 @@ export class SystemLogger {
     title: string,
     message: string
   ): Promise<void> {
-    await SystemLogger.sendToTopic(api, env, `ℹ️ <b>[معلومات النظام] ${escapeHtml(title)}</b>\n\n${message}`);
+    await SystemLogger.sendToTopic(
+      api,
+      env,
+      `ℹ️ <b>[معلومات النظام] ${escapeHtml(title)}</b>\n\n${message}`
+    );
   }
 
   /**
-   * إرسال تحذير تشغيلي إلى توبيك السجلات
+   * Sends an operational warning message to the audit topic.
    */
   static async warn(
     api: Api,
@@ -32,11 +36,15 @@ export class SystemLogger {
     title: string,
     message: string
   ): Promise<void> {
-    await SystemLogger.sendToTopic(api, env, `⚠️ <b>[تحذير تشغيلي] ${escapeHtml(title)}</b>\n\n${message}`);
+    await SystemLogger.sendToTopic(
+      api,
+      env,
+      `⚠️ <b>[تحذير تشغيلي] ${escapeHtml(title)}</b>\n\n${message}`
+    );
   }
 
   /**
-   * إرسال تقرير خطأ مفصل مع صمام أمان لمنع التكرار والإغراق (Anti-Flood)
+   * Sends a detailed error report with anti-flood throttling to avoid spamming the log topic.
    */
   static async error(
     api: Api,
@@ -61,7 +69,7 @@ export class SystemLogger {
 
     if (existing && now - existing.lastSent < THROTTLE_WINDOW_MS) {
       existing.count++;
-      return; // كبح الإشعار منعاً للإغراق
+      return; // Suppress notification to prevent flood
     }
 
     const previousCount = existing ? existing.count : 0;
@@ -74,7 +82,9 @@ export class SystemLogger {
     ];
 
     if (previousCount > 0) {
-      lines.push(`🔁 <i>(تكرر هذا الخطأ ${previousCount} مرة خلال الدقيقة الماضية)</i>`);
+      lines.push(
+        `🔁 <i>(تكرر هذا الخطأ ${previousCount} مرة خلال الدقيقة الماضية)</i>`
+      );
     }
 
     if (context) {
@@ -91,7 +101,11 @@ export class SystemLogger {
         lines.push(`• <b>القسم/الزر:</b> <code>#${context.nodeId}</code>`);
       }
       if (context.text) {
-        lines.push(`• <b>المدخل/البيانات:</b> <code>${escapeHtml(context.text.slice(0, 70))}</code>`);
+        lines.push(
+          `• <b>المدخل/البيانات:</b> <code>${escapeHtml(
+            context.text.slice(0, 70)
+          )}</code>`
+        );
       }
     }
 
@@ -101,7 +115,7 @@ export class SystemLogger {
   }
 
   /**
-   * إرسال تقرير فحص صحة واستقرار السيرفر
+   * Sends a server health and stability report to the audit topic.
    */
   static async health(
     api: Api,
@@ -117,7 +131,7 @@ export class SystemLogger {
   }
 
   /**
-   * الإرسال الفعلي لرسالة التوبيك بأمان تام
+   * Safely delivers message to the configured topic thread.
    */
   private static async sendToTopic(
     api: Api,
@@ -125,7 +139,9 @@ export class SystemLogger {
     formattedHtml: string
   ): Promise<void> {
     const adminGroupId = env.ADMIN_GROUP_ID?.trim();
-    const topicId = env.LOGS_TOPIC_ID ? Number(env.LOGS_TOPIC_ID.trim()) : undefined;
+    const topicId = env.LOGS_TOPIC_ID
+      ? Number(env.LOGS_TOPIC_ID.trim())
+      : undefined;
 
     if (!adminGroupId || !topicId || isNaN(topicId)) {
       return;
@@ -138,7 +154,7 @@ export class SystemLogger {
         link_preview_options: { is_disabled: true },
       });
     } catch (sendErr) {
-      console.error("[SystemLogger] Failed to deliver log message to topic:", sendErr);
+      console.error("[SystemLoggerSendFailed]:", sendErr);
     }
   }
 }

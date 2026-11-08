@@ -4,9 +4,10 @@ import { BotContext } from "../context/BotContext";
 import { SystemLogger } from "./systemLogger";
 
 /**
- * يرسل الملفات والرسائل بأقصى سرعة ممكنة:
- * - إذا كانت الرسالة محولة في الأصل (من قناة أو كاتب أصلي)، تُرسل كـ Forward لتظهر بالاسم الأصلي.
- * - إذا أرسلها الأدمن مباشرة أو ألغى التحويل، تُرسل كـ copyMessage لتظهر باسم البوت.
+ * Delivers files and messages with maximum throughput and speed:
+ * - Forwarded content from educational channels is sent via forwardMessage to keep original attribution.
+ * - Direct content from vault or admin is sent via copyMessage under the bot's name without headers.
+ * - Triple fallback: If the original message is missing, delivers via cached file_id.
  */
 export async function deliverNodeContents(
   ctx: BotContext,
@@ -23,21 +24,18 @@ export async function deliverNodeContents(
 
     let delivered = false;
 
-    // إذا كان مصدر الرسالة هو قناة الأرشيف والمستودع:
-    // نمنع forwardMessage تماماً، لأن تيلغرام سيظهر للطلاب عبارة "محولة من قناة الأرشيف"
-    // بدلاً من ذلك، نستخدم copyMessage لتصل الرسالة مباشرة وبشكل أنيق "باسم البوت"
+    // Messages from the vault channel are always delivered via copyMessage
+    // to avoid displaying "Forwarded from [Vault Channel Name]" to students
     const isFromVault = Boolean(
       storageChannelId && item.sourceChatId === storageChannelId
     );
 
-    // 1. إذا كانت الرسالة محولة بالأصل ومصدرها غروب الأدمن (وليس قناة الأرشيف):
-    // نرسلها كـ Forward مع الاسم الأصلي للجهة أو القناة التي حُوِّل منها
+    // 1. If content is forwarded and resides in the admin group (not vault), forward with original attribution
     if (item.isForwarded && !isFromVault) {
       delivered = await tryForwardMessage(ctx, targetChatId, item);
     }
 
-    // 2. إذا كانت من قناة الأرشيف، أو لم تكن محولة، أو فشل التحويل:
-    // ننسخها بـ copyMessage لتظهر مباشرة وبشكل رسمي "باسم البوت"
+    // 2. If from vault, not forwarded, or forwardMessage failed: copy directly under the bot's name
     if (!delivered) {
       delivered = await tryCopyMessage(
         ctx,
@@ -47,7 +45,7 @@ export async function deliverNodeContents(
       );
     }
 
-    // 3. في حال حُذفت الرسالة من الغروب/الأرشيف: نستخدم file_id الاحتياطي
+    // 3. Fallback: If original message was deleted from the group/vault, deliver via file_id
     if (!delivered) {
       await tryFallbackDelivery(ctx, targetChatId, item, keyboardToAttach);
     }

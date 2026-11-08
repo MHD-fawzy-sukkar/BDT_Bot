@@ -21,7 +21,7 @@ const THREAD_AWARE_METHODS = new Set([
   "sendVoice",
 ]);
 
-// تجنب تحديث last_active_at لنفس الطالب في كل ثانية؛ نكتفي بتحديثه في القاعدة مرة كل 5 دقائق
+// Throttle database writes for user activity tracking: once every 5 minutes per user
 const recentUserActivityMap = new Map<string, number>();
 
 export function createDependencyInjectionMiddleware(
@@ -68,13 +68,13 @@ export function createDependencyInjectionMiddleware(
       allowedAdminUserIds.size === 0 ||
       (ctx.from && allowedAdminUserIds.has(String(ctx.from.id)));
 
-    // حصر صلاحيات وأوامر المشرفين حصرياً داخل غروب الأدمن فقط وللمشرفين المعتمدين
+    // Restrict admin commands and privileges exclusively to the admin group
     ctx.isAdminContext =
       adminGroupId.length > 0 &&
       currentChatId === adminGroupId &&
       Boolean(isUserAllowed);
 
-    // دعم كامل لميزة الموضوعات (Topics / Forum Threads) داخل غروب الأدمن
+    // Full support for Telegram Forum Topics / Message Threads in the admin group
     const threadId = ctx.msg?.message_thread_id;
     if (threadId && currentChatId) {
       ctx.api.config.use((prev, method, payload, signal) => {
@@ -96,7 +96,7 @@ export function createDependencyInjectionMiddleware(
       });
     }
 
-    // تسجيل وتحديث نشاط الطالب في الخلفية (waitUntil) بدون تأخير الرد على الطالب نهائياً!
+    // Non-blocking user activity logging in background (waitUntil)
     if (ctx.chat?.type === "private" && ctx.from && !ctx.from.is_bot) {
       const uid = String(ctx.from.id);
       const now = Date.now();

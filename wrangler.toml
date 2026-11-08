@@ -2,11 +2,11 @@ name = "bdt-telegram-bot"
 main = "src/index.ts"
 compatibility_date = "2025-03-01"
 
-# وضع التشغيل الذكي ليكون الـ Worker بجانب سيرفرات تيلغرام وقاعدة البيانات الأوروبية مباشرةً
+# Smart placement: runs worker instances near Telegram servers and European D1 database
 [placement]
 mode = "smart"
 
-# إعداد قاعدة بيانات Cloudflare D1 (في منطقة أوروبا WEUR لسرعة استجابة فائقة)
+# Cloudflare D1 Database binding (Western Europe location for low latency)
 [[d1_databases]]
 binding = "DB"
 database_name = "bdt-bot-db-eu"
@@ -14,20 +14,19 @@ database_id = "2e929353-1633-41bf-88bf-bf744d994c5a"
 migrations_dir = "migrations"
 
 [vars]
-# معرف غروب المشرفين (حصرياً داخل هذا الغروب تعمل أوامر الإدارة)
+# Supergroup ID for admin management commands
 ADMIN_GROUP_ID = "-1004346734857"
 
-# معرف موضوع السجلات والتنبيهات المخصص داخل غروب الأدمن
+# Forum topic thread ID dedicated for audit logs and alerts inside the admin group
 LOGS_TOPIC_ID = "2074"
 
-# معرف قناة التخزين والمستودع السحابي الدائم للملفات
+# Immutable vault channel ID for permanent asset storage
 STORAGE_CHANNEL_ID = "-1004388493605"
 
-# محصورة حصرياً داخل غروب الأدمن فقط
+# Optional comma-separated admin user IDs; empty allows all admins in the admin group
 ADMIN_USER_IDS = ""
 
-# الجدولة اليومية التلقائية لتحديث ومزامنة المستودع الدائم
-# تعمل يومياً الساعة 12:00 بتوقيت UTC (الساعة 3:00 مساءً بتوقيت دمشق UTC+3)
+# Automated daily Cron Trigger to sync direct files to the vault
+# Runs daily at 12:00 UTC (3:00 PM Damascus time UTC+3)
 [triggers]
 crons = ["0 12 * * *"]
-

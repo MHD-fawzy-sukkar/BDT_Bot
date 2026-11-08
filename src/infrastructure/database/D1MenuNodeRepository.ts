@@ -72,7 +72,7 @@ export class D1MenuNodeRepository implements IMenuNodeRepository {
     const matches = snapshot.allNodes.filter(
       (c) => c.title.trim().replace(/\s+/g, " ") === trimmed
     );
-    // إذا كان الاسم فريداً تماماً في كامل البوت فقط (لا يوجد تطابق في مادة أخرى)
+    // Only resolve globally if title is 100% unique across all sections to avoid cross-subject ambiguity
     return matches.length === 1 ? matches[0] : null;
   }
 

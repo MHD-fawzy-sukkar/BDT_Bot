@@ -62,7 +62,7 @@ export class MenuNavigationService {
   }
 
   /**
-   * جلب القسم الحالي للطالب مع التحقق من وجوده (إن كان قد حُذف يعود تلقائياً للرئيسية)
+   * Fetches current navigation node for user with self-healing fallback to root if node was deleted.
    */
   async getValidUserCurrentNode(userId: string): Promise<MenuNode | null> {
     const currentId = await this.userRepo.getCurrentNodeId(userId);
@@ -90,11 +90,11 @@ export class MenuNavigationService {
   }
 
   /**
-   * البحث الدقيق عن الزر الذي ضغط عليه الطالب من الكيبورد السفلي:
-   * 1. يبحث أولاً حصراً ضمن أزرار القسم المفتوح حالياً أمام الطالب لمنع أي تداخل بين المواد (مثل "طريقة الدراسة" علوم مقابل فرنسي أو "اختبارات القناة" فيزياء مقابل كيمياء).
-   * 2. إن كان الطالب داخل قسم فرعي، نبحث أيضاً في إخوة القسم الحالي (في حال وصول رسائل سابقة).
-   * 3. إن لم يجده، نبحث في أزرار القائمة الرئيسية (مثل زر "المواد").
-   * 4. لا نقفز لأي مادة أخرى أبداً إذا كان اسم الزر مكرراً! نبحث فقط إذا كان الاسم فريداً 100% في كامل البوت.
+   * Precise button text resolution from reply keyboard:
+   * 1. Check direct children of the user's currently open section to prevent cross-subject collisions.
+   * 2. If inside a sub-section, check siblings of the current node.
+   * 3. Check root-level menu buttons.
+   * 4. Strict safety check: only resolve globally if the title is 100% unique across the bot.
    */
   async resolveNodeByButtonText(
     userId: string,
@@ -106,7 +106,7 @@ export class MenuNavigationService {
     const currentNode = await this.getValidUserCurrentNode(userId);
     const currentParentId = currentNode ? currentNode.id : null;
 
-    // 1. البحث داخل القسم المفتوح أمام الطالب
+    // 1. Search inside currently open section
     const directChild = await this.nodeRepo.findChildByTitle(
       currentParentId,
       cleanText
@@ -115,7 +115,7 @@ export class MenuNavigationService {
       return directChild;
     }
 
-    // 2. إن كان الطالب داخل قسم فرعي، نبحث أيضاً في إخوة القسم الحالي
+    // 2. Search sibling nodes if inside a sub-section
     if (currentNode && currentNode.parentId !== null) {
       const sibling = await this.nodeRepo.findChildByTitle(
         currentNode.parentId,
@@ -126,7 +126,7 @@ export class MenuNavigationService {
       }
     }
 
-    // 3. البحث في القائمة الرئيسية (المستوى الأول)
+    // 3. Search root-level menu items
     if (currentParentId !== null) {
       const rootChild = await this.nodeRepo.findChildByTitle(null, cleanText);
       if (rootChild) {
@@ -134,12 +134,12 @@ export class MenuNavigationService {
       }
     }
 
-    // 4. بحث أمان حصري: لا نقبل إلا إذا كان الزر فريداً في كامل البوت بدون أي تكرار
+    // 4. Global fallback: only match if completely unique
     return this.nodeRepo.findUniqueByTitle(cleanText);
   }
 
   /**
-   * يبني خريطة هيكلية نصية كاملة لأقسام وقوائم البوت
+   * Builds text-based hierarchy map of all bot categories and buttons.
    */
   async buildFullTreeOverview(): Promise<string> {
     const allNodes = await this.nodeRepo.findAllWithCounts();

@@ -7,7 +7,7 @@ import { userHandlers } from "./handlers/userHandlers";
 import { createDependencyInjectionMiddleware } from "./middlewares/dependencyInjection";
 import { botErrorHandler } from "./middlewares/errorHandler";
 
-// حفظ معلومات البوت في الذاكرة لتجنب استدعاء getMe من سيرفرات تيلغرام مع كل رسالة
+// Cache bot identity in memory to prevent calling getMe on Telegram API for every update
 let cachedBotInfo: UserFromGetMe | undefined;
 
 export function createBot(
@@ -23,7 +23,7 @@ export function createBot(
     cachedBotInfo ? { botInfo: cachedBotInfo } : undefined
   );
 
-  // بمجرد جلب معلومات البوت لأول مرة، نحفظها في الذاكرة لكل الطلبات القادمة
+  // Cache bot info on first update for subsequent requests
   bot.use(async (ctx, next) => {
     if (!cachedBotInfo && ctx.me) {
       cachedBotInfo = ctx.me;
@@ -31,16 +31,16 @@ export function createBot(
     await next();
   });
 
-  // 1. حقن الاعتماديات وتحديد سياق المشرفين
+  // 1. Dependency injection and admin context detection
   bot.use(createDependencyInjectionMiddleware(env, executionCtx));
 
-  // 2. معالجات المستخدمين العاديين (في الخاص)
+  // 2. Student private chat handlers
   bot.use(userHandlers);
 
-  // 3. معالجات المشرفين (محمية بـ adminGuard داخل غروب الأدمن)
+  // 3. Admin handlers (guarded by adminGuard in admin supergroup)
   bot.use(adminHandlers);
 
-  // 4. المعالج المركزي للأخطاء
+  // 4. Centralized error handling
   bot.catch(botErrorHandler);
 
   return bot;

@@ -4,7 +4,7 @@ import {
   UserCountsSummary,
 } from "../../domain/repositories/IBotUserRepository";
 
-// كاش فوري في الذاكرة لموقع الطالب الحالي لتفادي أي تأخير أو تضارب في الضغطات المتتالية (0ms)
+// In-memory cache for user navigation state to ensure zero-latency concurrent button handling (0ms)
 const userCurrentNodeMemoryMap = new Map<string, number | null>();
 
 export class D1BotUserRepository implements IBotUserRepository {

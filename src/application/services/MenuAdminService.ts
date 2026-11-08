@@ -11,7 +11,7 @@ export class MenuAdminService {
   ) {}
 
   /**
-   * يضيف زرّاً واحداً أو عدة أزرار دفعة واحدة مع تحديد ما إذا كان بسطر مستقل أو طبيعي
+   * Adds one or multiple child buttons from multi-line text with configurable full-width layout
    */
   async addChildNodesFromText(
     parentId: number | null,

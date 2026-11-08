@@ -21,13 +21,13 @@ import { escapeHtml } from "../keyboards/UserMenuKeyboard";
 import { adminGuard } from "../middlewares/adminGuard";
 import { deliverNodeContents } from "../utils/contentDelivery";
 import { SystemLogger } from "../utils/systemLogger";
-import { safeEditOrReply, tryDeleteMessage } from "../utils/telegramUi";
+import { formatTelegramEntitiesToHtml, safeEditOrReply, tryDeleteMessage } from "../utils/telegramUi";
 import { VaultSyncRunner } from "../utils/vaultSyncRunner";
 
 export const adminHandlers = new Composer<BotContext>();
 
 /**
- * أمر مساعدة لمعرفة معرف الغروب (Chat ID)
+ * Helper command to display Group Chat ID and User ID
  */
 adminHandlers.command("id", async (ctx) => {
   const chatId = ctx.chat?.id ?? "غير معروف";
@@ -43,7 +43,7 @@ adminHandlers.command("id", async (ctx) => {
   );
 });
 
-// حماية كافة الأوامر والأزرار التالية لتكون حصرياً داخل غروب المشرفين
+// Protect all admin commands and inline callbacks exclusively to the admin group
 const protectedAdmin = adminHandlers.use(adminGuard);
 
 async function renderAdminNode(
@@ -98,7 +98,7 @@ protectedAdmin.callbackQuery("a:noop", async (ctx) => {
   await ctx.answerCallbackQuery();
 });
 
-// 1. أمر تعديل الأزرار والملفات (/admin أو /panel أو كتابة "بانل" أو "لوحة التحكم")
+// 1. Admin dashboard command (/admin or /panel)
 const ADMIN_PANEL_TEXT_REGEX =
   /^(?:\/)?(?:admin|panel|بانل|بانل\s*الادمن|بانل\s*الأدمن|لوحة\s*الادمن|لوحة\s*الأدمن|لوحة\s*التحكم|ادمن|أدمن)$/i;
 
@@ -122,7 +122,7 @@ protectedAdmin.hears(ADMIN_PANEL_TEXT_REGEX, async (ctx) => {
   await renderAdminNode(ctx, null, false);
 });
 
-// 2. أمر خريطة شجرة البوت (/tree) - مستقل لوحده
+// 2. Hierarchy overview map (/tree)
 protectedAdmin.command("tree", async (ctx) => {
   const treeText = await ctx.services.navigation.buildFullTreeOverview();
   await safeEditOrReply(ctx, treeText, buildTreeOverviewKeyboard(), false);
@@ -133,7 +133,7 @@ protectedAdmin.callbackQuery("a:tree", async (ctx) => {
   await safeEditOrReply(ctx, treeText, buildTreeOverviewKeyboard(), true);
 });
 
-// 3. أمر إحصائيات البوت (/stats) - مستقل لوحده
+// 3. Bot statistics command (/stats)
 protectedAdmin.command("stats", async (ctx) => {
   const stats = await ctx.services.statsAndBroadcast.getStatistics();
   await safeEditOrReply(
@@ -154,7 +154,7 @@ protectedAdmin.callbackQuery("a:stats", async (ctx) => {
   );
 });
 
-// 5. أمر فحص توبيك السجلات (/test_logs)
+// 5. Test logs topic connectivity (/test_logs)
 protectedAdmin.command("test_logs", async (ctx) => {
   const adminGroupId = ctx.env.ADMIN_GROUP_ID?.trim();
   const topicId = ctx.env.LOGS_TOPIC_ID?.trim();
@@ -174,7 +174,7 @@ protectedAdmin.command("test_logs", async (ctx) => {
   await ctx.reply("✅ تم إرسال رسالة فحص بنجاح إلى توبيك السجلات!");
 });
 
-// 5.1 أمر فحص صحة واستقرار النظام (/health)
+// 5.1 Health and uptime check command (/health)
 protectedAdmin.command("health", async (ctx) => {
   const start = Date.now();
   const allContents = await ctx.services.contentAdmin.getAllContents();
@@ -203,7 +203,7 @@ protectedAdmin.command("health", async (ctx) => {
   );
 });
 
-// 6. أمر النسخ الاحتياطي الكامل فوراً (/backup)
+// 6. Full database SQL backup command (/backup)
 protectedAdmin.command("backup", async (ctx) => {
   const statusMsg = await ctx.reply(
     "⏳ جاري توليد وتحزيم النسخة الاحتياطية الكاملة..."
@@ -265,7 +265,7 @@ protectedAdmin.command("backup", async (ctx) => {
   }
 });
 
-// 7. أمر مزامنة ونقل الأرشيف إلى قناة المستودع الدائم (/sync_vault)
+// 7. Synchronize direct files into vault channel (/sync_vault)
 protectedAdmin.command("sync_vault", async (ctx) => {
   const storageChannelId = ctx.env.STORAGE_CHANNEL_ID?.trim();
   if (!storageChannelId) {
@@ -329,7 +329,7 @@ protectedAdmin.callbackQuery(/^a:vault_start:(\d+)$/, async (ctx) => {
     return;
   }
 
-  // 1. تحديث فوري للشاشة لمنع أي إحساس بالتعليق
+  // 1. Instant UI update to prevent perceived lag
   await ctx.answerCallbackQuery({ text: "⏳ جاري نقل وتأمين الأرشيف..." });
   await safeEditOrReply(
     ctx,
@@ -389,7 +389,7 @@ protectedAdmin.callbackQuery(/^a:vault_start:(\d+)$/, async (ctx) => {
   );
 });
 
-// 4. أمر الإذاعة العامة (/broadcast) - يعمل حصراً بالرد (Reply) على رسالة البوت!
+// 4. Broadcast announcement command (/broadcast)
 protectedAdmin.command("broadcast", async (ctx) => {
   if (!ctx.from || !ctx.chat) return;
 
@@ -440,10 +440,10 @@ protectedAdmin.command(["cancel", "done"], async (ctx) => {
 });
 
 // ════════════════════════════════════════════════════════════════════
-// 📢 أزرار التحكم بالرسالة العامة (Broadcast) بعد معاينتها
+// Broadcast control callbacks after preview
 // ════════════════════════════════════════════════════════════════════
 
-// زر "تعديل الرسالة" قبل إرسالها
+// Edit broadcast message button
 protectedAdmin.callbackQuery(/^a:bc_edit:(\d+)$/, async (ctx) => {
   const previewMessageId = Number(ctx.match[1]);
   if (!ctx.from || !ctx.chat) return;
@@ -467,7 +467,7 @@ protectedAdmin.callbackQuery(/^a:bc_edit:(\d+)$/, async (ctx) => {
   );
 });
 
-// زر "إلغاء وحذف"
+// Cancel and discard broadcast
 protectedAdmin.callbackQuery(/^a:bc_del:(\d+)$/, async (ctx) => {
   const previewMessageId = Number(ctx.match[1]);
   if (!ctx.from || !ctx.chat) return;
@@ -484,7 +484,7 @@ protectedAdmin.callbackQuery(/^a:bc_del:(\d+)$/, async (ctx) => {
   });
 });
 
-// زر "نعم، أرسلها للجميع الآن"
+// Confirm and send broadcast to all active students
 protectedAdmin.callbackQuery(/^a:bc_go:(\d+):(\d+):(\d+)$/, async (ctx) => {
   const sourceMessageId = Number(ctx.match[1]);
   const previewMessageId = Number(ctx.match[2]);
@@ -570,7 +570,7 @@ protectedAdmin.callbackQuery(/^a:bc_go:(\d+):(\d+):(\d+)$/, async (ctx) => {
 });
 
 // ════════════════════════════════════════════════════════════════════
-// 🛠️ التنقل وتعديل الأزرار والملفات
+// Navigation and button management callbacks
 // ════════════════════════════════════════════════════════════════════
 
 protectedAdmin.callbackQuery("a:root", async (ctx) => {
@@ -613,7 +613,7 @@ protectedAdmin.callbackQuery(/^a:cancel:(.+)$/, async (ctx) => {
   }
 });
 
-// 1. إضافة زر جديد (مع اختيار موضعه: طبيعي مع زر جنبه أو بسطر لحاله)
+// 1. Add new button (normal or full-width)
 protectedAdmin.callbackQuery(
   /^a:add_btn:(root|\d+)(?::(0|1))?$/,
   async (ctx) => {
@@ -647,7 +647,7 @@ protectedAdmin.callbackQuery(
   }
 );
 
-// تبديل موضع زر موجود حالياً (بين طبيعي وبسطر لحاله) بضغطة واحدة
+// Toggle button layout (full-width vs inline pair)
 protectedAdmin.callbackQuery(/^a:width:(\d+)$/, async (ctx) => {
   const nodeId = Number(ctx.match[1]);
   const updated = await ctx.services.menuAdmin.toggleNodeFullWidth(nodeId);
@@ -659,7 +659,7 @@ protectedAdmin.callbackQuery(/^a:width:(\d+)$/, async (ctx) => {
   await renderAdminNode(ctx, nodeId, true);
 });
 
-// تبديل موضع الزر من داخل شاشة الترتيب مباشرةً
+// Toggle layout directly from reorder screen
 protectedAdmin.callbackQuery(/^a:ro_width:(\d+)$/, async (ctx) => {
   const nodeId = Number(ctx.match[1]);
   const updated = await ctx.services.menuAdmin.toggleNodeFullWidth(nodeId);
@@ -671,7 +671,7 @@ protectedAdmin.callbackQuery(/^a:ro_width:(\d+)$/, async (ctx) => {
   await renderReorderScreen(ctx, updated.parentId, true);
 });
 
-// 2. ترتيب الأزرار
+// 2. Reorder buttons
 protectedAdmin.callbackQuery(/^a:ro_menu:(root|\d+)$/, async (ctx) => {
   const rawTarget = ctx.match[1];
   const parentId = rawTarget === "root" ? null : Number(rawTarget);
@@ -690,7 +690,7 @@ protectedAdmin.callbackQuery(/^a:ro_(up|down):(\d+)$/, async (ctx) => {
   await renderReorderScreen(ctx, movedNode.parentId, true);
 });
 
-// 3. تغيير اسم الزر
+// 3. Rename button
 protectedAdmin.callbackQuery(/^a:ren:(\d+)$/, async (ctx) => {
   const nodeId = Number(ctx.match[1]);
   if (!ctx.from || !ctx.chat) return;
@@ -715,7 +715,38 @@ protectedAdmin.callbackQuery(/^a:ren:(\d+)$/, async (ctx) => {
   );
 });
 
-// 4. حذف الزر
+// 3.1 Custom message / description for button
+protectedAdmin.callbackQuery(/^a:set_desc:(\d+)$/, async (ctx) => {
+  const nodeId = Number(ctx.match[1]);
+  if (!ctx.from || !ctx.chat) return;
+
+  const view = await ctx.services.navigation.getMenuView(nodeId);
+  const currentDesc = view.currentNode?.description
+    ? `\n\n📝 <b>الرسالة الحالية:</b>\n<i>${escapeHtml(view.currentNode.description)}</i>`
+    : "";
+
+  const msgId = await safeEditOrReply(
+    ctx,
+    `📝 <b>تخصيص رسالة لزر «${escapeHtml(
+      view.currentNode?.title ?? ""
+    )}»</b>${currentDesc}\n\n` +
+      `👈 <b>قم بالرد (Reply) على هذه الرسالة</b> وأرسل الرسالة أو الملاحظة التي تريد أن تظهر للطالب فور ضغطه على هذا الزر (ستظهر فوق الأزرار الفرعية مباشرة).\n\n` +
+      `• يدعم الروابط والتنسيقات وأي نص تريده.\n` +
+      `• لحذف الرسالة المخصصة والرجوع للنص التلقائي، أرسل كلمة: <code>حذف</code>`,
+    buildCancelSessionKeyboard(nodeId, false),
+    true
+  );
+
+  await ctx.services.menuAdmin.setSession(
+    String(ctx.from.id),
+    String(ctx.chat.id),
+    "EDIT_NODE_DESC",
+    nodeId,
+    msgId
+  );
+});
+
+// 4. Delete button
 protectedAdmin.callbackQuery(/^a:del_ask:(\d+)$/, async (ctx) => {
   const nodeId = Number(ctx.match[1]);
   const view = await ctx.services.navigation.getMenuView(nodeId);
@@ -739,14 +770,14 @@ protectedAdmin.callbackQuery(/^a:del_yes:(\d+)$/, async (ctx) => {
   await renderAdminNode(ctx, parentId, true);
 });
 
-// 5. إضافة ملفات أو رسائل داخل الزر
+// 5. Add files or messages into button
 protectedAdmin.callbackQuery(/^a:add_cnt:(\d+)$/, async (ctx) => {
   const nodeId = Number(ctx.match[1]);
   if (!ctx.from || !ctx.chat) return;
 
   const view = await ctx.services.navigation.getMenuView(nodeId);
 
-  // إذا كان الزر مجلداً ولديه أزرار فرعية، نوضح للمشرف طريقة ظهور الملفات العامة
+  // If node has children, inform admin about setting button messages
   const folderNote =
     view.children.length > 0
       ? `\n\n💡 <i>ملاحظة: هذا القسم يحتوي على أزرار فرعية. ستظهر هذه الملفات كـ «ملفات عامة للقسم» مع زر مخصص لها فوق الأزرار الفرعية.</i>`
@@ -772,7 +803,7 @@ protectedAdmin.callbackQuery(/^a:add_cnt:(\d+)$/, async (ctx) => {
   );
 });
 
-// 6. استعراض وحذف وترتيب الملفات الموجودة في الزر
+// 6. View, delete, and reorder node contents
 protectedAdmin.callbackQuery(/^a:list_cnt:(\d+)$/, async (ctx) => {
   const nodeId = Number(ctx.match[1]);
   if (ctx.from && ctx.chat) {
@@ -842,7 +873,7 @@ protectedAdmin.callbackQuery(/^a:clr_cnt_yes:(\d+)$/, async (ctx) => {
   await renderAdminNode(ctx, nodeId, true);
 });
 
-// مشاهدة ملف واحد عند الضغط على اسمه في قائمة الملفات
+// Preview single item when clicked from list
 protectedAdmin.callbackQuery(/^a:prev_item:(\d+)$/, async (ctx) => {
   const contentId = Number(ctx.match[1]);
   const item = await ctx.services.contentAdmin.getContentById(contentId);
@@ -860,7 +891,7 @@ protectedAdmin.callbackQuery(/^a:prev_item:(\d+)$/, async (ctx) => {
 });
 
 // ════════════════════════════════════════════════════════════════════
-// 💬 استقبال الرسائل والملفات من المشرف
+// Handle incoming text and media from admin
 // ════════════════════════════════════════════════════════════════════
 
 protectedAdmin.on("message", async (ctx, next) => {
@@ -880,8 +911,8 @@ protectedAdmin.on("message", async (ctx, next) => {
     return next();
   }
 
-  // في حالة إضافة المحتوى (الملفات والرسائل): يلتقط البوت الملفات والرسائل المحوّلة مباشرةً بدون الحاجة لعمل Reply
-  // أما في باقي الحالات (إضافة زر، تغيير اسم، إذاعة): يشترط الرد على رسالة البوت منعاً لالتقاط محادثات الأعضاء في الغروب
+  // In ADD_CONTENT mode, capture forwarded and direct files without requiring a reply
+  // For other actions (add button, rename, broadcast, set desc), require reply to avoid intercepting normal chat
   if (session.action !== "ADD_CONTENT") {
     const repliedTo = ctx.message.reply_to_message;
     const isReplyToTargetMessage =
@@ -894,7 +925,7 @@ protectedAdmin.on("message", async (ctx, next) => {
     }
   }
 
-  // 1. حالة الإذاعة العامة (/broadcast):
+  // 1. Case: Broadcast announcement
   if (session.action === "BROADCAST") {
 
     await tryDeleteMessage(ctx, chatId, session.panelMessageId);
@@ -902,7 +933,7 @@ protectedAdmin.on("message", async (ctx, next) => {
 
     const stats = await ctx.services.statsAndBroadcast.getStatistics();
 
-    // نسخ الرسالة لعرضها للمشرف
+    // Copy message for admin preview
     const copiedPreview = await ctx.api.copyMessage(
       chatId,
       chatId,
@@ -924,7 +955,7 @@ protectedAdmin.on("message", async (ctx, next) => {
     return;
   }
 
-  // 2. حالة إضافة زر جديد (طبيعي أو بسطر لحاله)
+  // 2. Case: Add new button (normal or full-width)
   if (
     session.action === "ADD_CHILD_NODE" ||
     session.action === "ADD_CHILD_NODE_FULL"
@@ -948,7 +979,7 @@ protectedAdmin.on("message", async (ctx, next) => {
     return;
   }
 
-  // 3. حالة تغيير اسم الزر
+  // 3. Case: Rename button
   if (session.action === "RENAME_NODE" && session.targetNodeId !== null) {
     if (!ctx.message.text) {
       await ctx.reply("يرجى إرسال الاسم الجديد كتابةً.");
@@ -967,7 +998,44 @@ protectedAdmin.on("message", async (ctx, next) => {
     return;
   }
 
-  // 4. حالة إضافة ملفات أو رسائل داخل الزر
+  // Case: editing button custom message / description
+  if (session.action === "EDIT_NODE_DESC" && session.targetNodeId !== null) {
+    if (!ctx.message.text) {
+      await ctx.reply("يرجى إرسال الرسالة كنص.");
+      return;
+    }
+
+    const text = ctx.message.text.trim();
+    const isClear =
+      text === "حذف" || text === "/delete" || text === "/clear" || text === "ازالة";
+
+    let finalDesc: string | null = null;
+    if (!isClear) {
+      finalDesc = formatTelegramEntitiesToHtml(
+        ctx.message.text,
+        ctx.message.entities
+      );
+    }
+
+    await ctx.services.menuAdmin.updateDescription(
+      session.targetNodeId,
+      finalDesc
+    );
+
+    await tryDeleteMessage(ctx, chatId, session.panelMessageId);
+    await ctx.services.menuAdmin.clearSession(userId, chatId);
+
+    await ctx.reply(
+      finalDesc
+        ? "✅ تم بنجاح حفظ الرسالة المخصصة للزر."
+        : "🗑️ تم حذف الرسالة المخصصة والرجوع للنص التلقائي."
+    );
+
+    await renderAdminNode(ctx, session.targetNodeId, false);
+    return;
+  }
+
+  // 4. Content addition inside button
   if (session.action === "ADD_CONTENT" && session.targetNodeId !== null) {
     const extracted = extractMessageMetadata(ctx.message);
     if (!extracted) {

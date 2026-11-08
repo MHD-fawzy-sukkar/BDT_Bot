@@ -5,16 +5,19 @@ import { MenuNodeWithCounts } from "../../domain/entities/MenuNode";
 import { NodeContent } from "../../domain/entities/NodeContent";
 import { appendCleanButtonsGrid, escapeHtml } from "./UserMenuKeyboard";
 
+/**
+ * Builds the interactive admin panel inline keyboard for menu navigation and editing.
+ */
 export function buildAdminMenuKeyboard(view: MenuViewData): InlineKeyboard {
   const keyboard = new InlineKeyboard();
 
-  // 1. عرض الأزرار بنفس الشكل تماماً كما تظهر للمستخدم العادي
+  // 1. Render child buttons with the same grid layout as users see
   appendCleanButtonsGrid(keyboard, view.children, "a:nav");
 
   const nodeTarget =
     view.currentNode !== null ? String(view.currentNode.id) : "root";
 
-  // 2. أزرار التعديل والإضافة المبسطة تحت القائمة مباشرة
+  // 2. Control and editing buttons
   if (view.currentNode === null) {
     if (view.children.length >= 2) {
       keyboard
@@ -29,6 +32,8 @@ export function buildAdminMenuKeyboard(view: MenuViewData): InlineKeyboard {
     const widthToggleLabel = view.currentNode.isFullWidth
       ? "🔲 جعله مع زر جنبه"
       : "↔️ جعله بسطر لحاله";
+    const hasDesc = Boolean(view.currentNode.description);
+    const descBtnLabel = hasDesc ? "📝 تعديل رسالة الزر" : "📝 تخصيص رسالة للزر";
 
     keyboard
       .text("📎 إضافة ملفات أو رسائل", `a:add_cnt:${id}`)
@@ -40,7 +45,10 @@ export function buildAdminMenuKeyboard(view: MenuViewData): InlineKeyboard {
       .text("✏️ تغيير اسم الزر", `a:ren:${id}`)
       .row();
 
-    keyboard.text(widthToggleLabel, `a:width:${id}`);
+    keyboard
+      .text(descBtnLabel, `a:set_desc:${id}`)
+      .text(widthToggleLabel, `a:width:${id}`)
+      .row();
 
     if (view.children.length >= 2) {
       keyboard.text("↕️ ترتيب الأزرار", `a:ro_menu:${nodeTarget}`).row();
@@ -63,6 +71,9 @@ export function buildAdminMenuKeyboard(view: MenuViewData): InlineKeyboard {
   return keyboard;
 }
 
+/**
+ * Formats the admin screen header and details for current menu node.
+ */
 export function formatAdminMenuText(view: MenuViewData): string {
   if (view.currentNode === null) {
     return (
@@ -81,6 +92,13 @@ export function formatAdminMenuText(view: MenuViewData): string {
     `📐 <b>موضع الزر:</b> ${layoutText} | 📎 <b>الملفات:</b> ${view.contents.length}`,
   ];
 
+  if (view.currentNode.description) {
+    const rawDesc = view.currentNode.description;
+    const preview =
+      rawDesc.length > 80 ? rawDesc.slice(0, 77) + "..." : rawDesc;
+    lines.push(`📝 <b>رسالة الزر المخصصة:</b>\n<i>${escapeHtml(preview)}</i>`);
+  }
+
   if (view.children.length > 0) {
     lines.push("\nاضغط على أي زر بالأسفل للدخول إليه أو استخدم أزرار التعديل 👇");
   } else if (view.contents.length === 0) {
@@ -93,7 +111,7 @@ export function formatAdminMenuText(view: MenuViewData): string {
 }
 
 /**
- * كيبورد إضافة زر جديد مع اختيار موضعه بضغطة واحدة (طبيعي مع زر جنبه أو بسطر لحاله)
+ * Keyboard for choosing button layout (full-width vs inline row).
  */
 export function buildAddButtonKeyboard(
   targetNodeId: number | null,
@@ -117,7 +135,7 @@ export function buildAddButtonKeyboard(
 }
 
 /**
- * لوحة ترتيب الأزرار بشكل بسيط
+ * Reordering keyboard for child buttons.
  */
 export function buildReorderChildrenKeyboard(
   parentId: number | null,
@@ -155,7 +173,7 @@ export function buildReorderChildrenKeyboard(
 }
 
 /**
- * لوحة عرض وحذف وترتيب الملفات الموجودة داخل الزر
+ * Management panel for node contents (files, audios, videos, messages).
  */
 export function buildAdminContentListKeyboard(
   nodeId: number,
@@ -194,7 +212,7 @@ export function buildAdminContentListKeyboard(
 }
 
 /**
- * لوحة معاينة وتأكيد الإذاعة بعد الرد على رسالة البوت
+ * Broadcast preview and confirmation keyboard.
  */
 export function buildBroadcastPreviewKeyboard(
   sourceMessageId: number,

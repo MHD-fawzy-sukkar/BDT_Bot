@@ -36,8 +36,8 @@ export class VaultSyncRunner {
     }
 
     const allContents = await contentAdmin.getAllContents();
-    // الملفات المعنية بالتأمين في قناة المستودع هي الملفات المباشرة (التي تخرج باسم البوت)
-    // أما الملفات المحولة (is_forwarded) فتبقى مربوطة بالغروب لتخرج للطلاب دائماً باسم القناة الأصلية
+    // Only direct contents are secured in the vault channel (delivered under the bot's name).
+    // Forwarded contents (!isForwarded) stay tied to their original channels for author attribution.
     const targetContents = allContents.filter((c) => !c.isForwarded);
     const pending = targetContents.filter(
       (c) => c.sourceChatId !== storageChannelId
@@ -67,7 +67,7 @@ export class VaultSyncRunner {
       try {
         let newMsgId: number | null = null;
 
-        // 1. محاولة النسخ المباشر السريع من الرسالة الأصلية
+        // 1. Attempt fast direct copy from original message
         try {
           const copied = await api.copyMessage(
             storageChannelId,
@@ -76,7 +76,7 @@ export class VaultSyncRunner {
           );
           newMsgId = copied.message_id;
         } catch {
-          // 2. المحاولة البديلة عبر المحتوى المخزن
+          // 2. Fallback: send text or media via cached file_id
           if (item.contentType === "text") {
             const textToSend = item.caption || item.title || "";
             if (textToSend.length > 0) {
@@ -132,7 +132,7 @@ export class VaultSyncRunner {
           }
         }
 
-        // الحفظ الفوري المباشر في قاعدة البيانات فور نجاح النقل لتجنب أي فقدان للبيانات
+        // Immediately persist updated sourceChatId and new message_id in D1
         if (newMsgId) {
           await contentAdmin.updateContentSource(
             item.id,
@@ -144,7 +144,7 @@ export class VaultSyncRunner {
           failedCount++;
         }
 
-        // تحديث حي للمستخدم على واجهة تيلغرام كل 3 ملفات أو عند نهاية الدفعة
+        // Live progress update on Telegram UI every 3 items or at end of batch
         if (onProgress && ((i + 1) % 3 === 0 || i === currentBatch.length - 1)) {
           const curTransferred = alreadyInVault + transferredInThisStep;
           const curRemaining = targetContents.length - curTransferred;
@@ -164,11 +164,11 @@ export class VaultSyncRunner {
               progressBar: curProgressBar,
             });
           } catch {
-            // تجاهل أخطاء التعديل اللحظي إن حدثت
+            // Silently ignore transient UI edit errors
           }
         }
 
-        // فاصل زمني بسيط (250ms) احتراماً لقيود معدل الإرسال في تيلغرام (Rate Limiting)
+        // Rate limiting buffer: 250ms delay between Telegram API calls
         await new Promise((resolve) => setTimeout(resolve, 250));
       } catch (itemErr) {
         failedCount++;
@@ -182,12 +182,12 @@ export class VaultSyncRunner {
       (totalTransferred / targetContents.length) * 100
     );
 
-    // شريط تقدم مقتضب وجميل (5 خانات) يناسب شاشات الهواتف دون تشويه السطور
+    // Compact 5-block progress bar for mobile screens
     const filledBlocks = Math.round((percent / 100) * 5);
     const progressBar =
       "🟩".repeat(filledBlocks) + "⬜".repeat(5 - filledBlocks);
 
-    // إرسال تقرير الدفعة في توبيك السجلات
+    // Send batch sync audit log to the logs topic
     if (transferredInThisStep > 0) {
       await SystemLogger.info(
         api,

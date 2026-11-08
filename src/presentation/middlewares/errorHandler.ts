@@ -9,7 +9,7 @@ export const botErrorHandler: ErrorHandler<BotContext> = async (err) => {
 
   console.error(`[BotError] Update ${ctx.update.update_id}:`, error);
 
-  // إرسال تنبيه في توبيك السجلات والأعطال تلقائياً
+  // Automatically dispatch error report to the audit topic
   if (
     ctx.env &&
     !(error instanceof AppError && error.code === "BOUNDARY_REACHED")

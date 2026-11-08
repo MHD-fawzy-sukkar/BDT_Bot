@@ -15,7 +15,7 @@ export default {
   ): Promise<Response> {
     const url = new URL(request.url);
 
-    // 1. نقطة فحص حالة البوت (Health Check)
+    // 1. Health check endpoint
     if (request.method === "GET" && url.pathname === "/") {
       return new Response(
         JSON.stringify({
@@ -30,7 +30,7 @@ export default {
       );
     }
 
-    // نقطة فحص الـ Webhook المباشرة من تيلغرام (تشخيص فوري ومحمي)
+    // Direct Webhook inspection endpoint for live diagnostics
     if (request.method === "GET" && url.pathname === "/webhook-info") {
       try {
         if (env.WEBHOOK_SECRET) {
@@ -51,7 +51,7 @@ export default {
       }
     }
 
-    // نقطة استدعاء آلية آمنة لمزامنة الأرشيف دفعة دفعة مع إشراف وتأكيد فوري
+    // Secure batch synchronization API endpoint for step-by-step vault mirroring
     if (
       (request.method === "POST" || request.method === "GET") &&
       url.pathname === "/api/sync-vault-step"
@@ -91,7 +91,7 @@ export default {
       }
     }
 
-    // 2. نقطة ربط الـ Webhook وتسجيل قائمة الأوامر تلقائياً في تيلغرام
+    // 2. Setup webhook and register scoped commands with Telegram API
     if (request.method === "GET" && url.pathname === "/setup-webhook") {
       try {
         if (env.WEBHOOK_SECRET) {
@@ -113,7 +113,7 @@ export default {
           ip_address: "104.21.44.4",
         });
 
-        // تخصيص قائمة الأوامر: للطلاب في الخاص يظهر /start فقط، وللمشرفين في الغروبات تظهر أوامر الإدارة
+        // Set scoped commands: /start in private student chats, admin commands in groups
         await Promise.all([
           bot.api.setMyCommands(
             [{ command: "start", description: "🏠 القائمة الرئيسية للبوت" }],
@@ -166,7 +166,7 @@ export default {
           ),
         ]);
 
-        // إرسال إشعار فوري في توبيك السجلات عند تحديث الـ Webhook والنشر
+        // Audit log dispatch on webhook setup
         executionCtx.waitUntil(
           SystemLogger.info(
             bot.api,
@@ -213,7 +213,7 @@ export default {
       }
     }
 
-    // 3. نقطة استقبال تحديثات تيلغرام (Webhook Endpoint)
+    // 3. Main Telegram webhook update receiver
     if (request.method === "POST" && url.pathname === "/webhook") {
       try {
         const bot = createBot(env, executionCtx);
@@ -231,9 +231,8 @@ export default {
   },
 
   /**
-   * الجدولة اليومية الآلية (Cron Trigger)
-   * تعمل تلقائياً الساعة 3:00 مساءً بتوقيت دمشق (12:00 UTC)
-   * تفحص أي ملفات جديدة تم رفعها أثناء اليوم وتنقلها بهدوء إلى قناة المستودع
+   * Automated daily Cloudflare Cron Trigger.
+   * Runs daily at 12:00 UTC (3:00 PM Damascus time) to quietly sync any new files into the vault.
    */
   async scheduled(
     _event: ScheduledEvent,
@@ -249,7 +248,7 @@ export default {
       const contentRepo = new D1NodeContentRepository(env.DB);
       const contentAdmin = new ContentAdminService(nodeRepo, contentRepo);
 
-      // مزامنة الملفات الجديدة المعلقة بهدوء
+      // Quietly mirror pending direct files in batches
       const result = await VaultSyncRunner.runBatch(
         bot.api,
         env,
@@ -257,7 +256,7 @@ export default {
         50
       );
 
-      // إشعار يومي في توبيك السجلات فقط إذا تم بالفعل نقل ملفات جديدة اليوم
+      // Send audit log only if new files were actually transferred today
       if (result.transferredInThisStep > 0) {
         await SystemLogger.info(
           bot.api,

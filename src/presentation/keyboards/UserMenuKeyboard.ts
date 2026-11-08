@@ -7,8 +7,8 @@ export const HOME_BUTTON_TEXT = "🏠 الرئيسية";
 export const GENERAL_FILES_BUTTON_PREFIX = "📄 ملفات هذا القسم";
 
 /**
- * يرتب الأزرار المدمجة (تُستخدم للوحة المشرفين داخل غروب الأدمن)
- * يحترم خيار المشرف: إما بسطر لحاله (isFullWidth) أو طبيعي (زرين في كل سطر)
+ * Arranges inline buttons for the admin panel in the admin group.
+ * Honors the full-width (single column) or standard (2 columns) setting.
  */
 export function appendCleanButtonsGrid(
   keyboard: InlineKeyboard,
@@ -42,21 +42,23 @@ export function appendCleanButtonsGrid(
 }
 
 /**
- * يبني كيبورد الأزرار السفلي الفعلي (Reply Keyboard) للطلاب في المحادثة الخاصة
- * يحترم خيار المشرف لكل زر: إما بسطر لحاله (isFullWidth) أو طبيعي (زرين في كل سطر)
+ * Builds the user reply keyboard for private student chat navigation.
+ * Respects full-width and 2-column layout preferences.
  */
 export function buildUserReplyKeyboard(view: MenuViewData): Keyboard {
   const keyboard = new Keyboard();
 
-  // في حال كان الزر مجلداً ولديه أزرار فرعية وبنفس الوقت فيه ملفات عامة:
-  // نضع زر الملفات العامة في أول الكيبورد مستقلاً لكي لا تنزل الملفات قسراً
+  // If a folder has children and also non-text files (documents, videos, etc.),
+  // add a dedicated button for general files so files are not dumped forcibly.
+  // Pure text notes/messages are rendered directly in the prompt text.
+  const nonTextContents = view.contents.filter((c) => c.contentType !== "text");
   if (
     view.currentNode !== null &&
-    view.contents.length > 0 &&
+    nonTextContents.length > 0 &&
     view.children.length > 0
   ) {
     keyboard
-      .text(`${GENERAL_FILES_BUTTON_PREFIX} (${view.contents.length})`)
+      .text(`${GENERAL_FILES_BUTTON_PREFIX} (${nonTextContents.length})`)
       .row();
   }
 
@@ -85,7 +87,7 @@ export function buildUserReplyKeyboard(view: MenuViewData): Keyboard {
     keyboard.row();
   }
 
-  // صف أزرار الرجوع والرئيسية في أسفل الكيبورد عند الدخول لأي قسم فرعي
+  // Add Back and Home navigation buttons when inside any sub-menu
   if (view.currentNode !== null) {
     keyboard.text(BACK_BUTTON_TEXT).text(HOME_BUTTON_TEXT).row();
   }
@@ -94,15 +96,12 @@ export function buildUserReplyKeyboard(view: MenuViewData): Keyboard {
 }
 
 /**
- * رسالة مختصرة وخفيفة جداً بدون مسارات مكررة تماثل أسلوب البوت المرجعي
+ * Formats the menu prompt text for students.
+ * Displays any custom button message/note above the menu selection prompt.
  */
 export function formatUserMenuText(view: MenuViewData): string {
   if (view.currentNode === null) {
     return "🏠 أنت في القائمة الرئيسية";
-  }
-
-  if (view.currentNode.description) {
-    return escapeHtml(view.currentNode.description);
   }
 
   const cleanTag = view.currentNode.title
@@ -110,11 +109,34 @@ export function formatUserMenuText(view: MenuViewData): string {
     .replace(/[^\p{L}\p{N}_]+/gu, "_")
     .replace(/^_+|_+$/g, "");
 
-  if (cleanTag.length > 0) {
-    return `📂 قسم #${cleanTag} اختر من القائمة ⬇️`;
+  const defaultPrompt =
+    cleanTag.length > 0
+      ? `📂 قسم #${cleanTag} اختر من القائمة ⬇️`
+      : "اختر من القائمة ⬇️";
+
+  // 1. Check if node has an explicit custom message / description
+  let customMessage = view.currentNode.description?.trim();
+
+  // 2. Fallback: check if text contents/notes were attached to this folder
+  if (!customMessage && view.contents.length > 0) {
+    const textContents = view.contents.filter((c) => c.contentType === "text");
+    if (textContents.length > 0) {
+      customMessage = textContents
+        .map((c) => c.caption || c.title)
+        .filter(Boolean)
+        .join("\n\n");
+    }
   }
 
-  return "اختر من القائمة ⬇️";
+  if (customMessage) {
+    const formattedMessage =
+      customMessage.includes("<") && customMessage.includes(">")
+        ? customMessage
+        : escapeHtml(customMessage);
+    return `${formattedMessage}\n\n${defaultPrompt}`;
+  }
+
+  return defaultPrompt;
 }
 
 export function escapeHtml(str: string): string {
