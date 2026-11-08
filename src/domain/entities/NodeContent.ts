@@ -18,6 +18,7 @@ export interface NodeContent {
   readonly caption: string | null;
   readonly sortOrder: number;
   readonly isForwarded: boolean;
+  readonly vaultMessageId: number | null;
   readonly createdAt: string;
 }
 
@@ -30,4 +31,5 @@ export interface CreateNodeContentInput {
   readonly title: string;
   readonly caption?: string | null;
   readonly isForwarded?: boolean;
+  readonly vaultMessageId?: number | null;
 }

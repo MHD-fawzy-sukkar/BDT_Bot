@@ -36,12 +36,10 @@ export class VaultSyncRunner {
     }
 
     const allContents = await contentAdmin.getAllContents();
-    // Only direct contents are secured in the vault channel (delivered under the bot's name).
-    // Forwarded contents (!isForwarded) stay tied to their original channels for author attribution.
-    const targetContents = allContents.filter((c) => !c.isForwarded);
-    const pending = targetContents.filter(
-      (c) => c.sourceChatId !== storageChannelId
-    );
+    // All contents (both direct and forwarded) are backed up in the vault channel.
+    // An item is pending sync if it does not yet have a recorded vaultMessageId.
+    const targetContents = allContents;
+    const pending = targetContents.filter((c) => !c.vaultMessageId);
 
     const alreadyInVault = targetContents.length - pending.length;
 
@@ -132,13 +130,18 @@ export class VaultSyncRunner {
           }
         }
 
-        // Immediately persist updated sourceChatId and new message_id in D1
+        // Persist mirrored message ID in vault channel
         if (newMsgId) {
-          await contentAdmin.updateContentSource(
-            item.id,
-            storageChannelId,
-            newMsgId
-          );
+          await contentAdmin.updateVaultMessageId(item.id, newMsgId);
+
+          // For direct files, also update source_chat_id to point directly to vault channel
+          if (!item.isForwarded) {
+            await contentAdmin.updateContentSource(
+              item.id,
+              storageChannelId,
+              newMsgId
+            );
+          }
           transferredInThisStep++;
         } else {
           failedCount++;
@@ -205,7 +208,7 @@ export class VaultSyncRunner {
         api,
         env,
         "اكتملت مزامنة الأرشيف بالكامل",
-        `🎉 <b>تم بحمد الله نقل وتأمين جميع ملفات البوت المباشرة (${targetContents.length} ملف) داخل قناة المستودع الدائم بنسبة 100%!</b>`
+        `🎉 <b>تم بحمد الله نقل وتأمين جميع ملفات البوت (${targetContents.length} ملف: المباشرة والمحولة) داخل قناة المستودع الدائم بنسبة 100%!</b>`
       );
     }
 

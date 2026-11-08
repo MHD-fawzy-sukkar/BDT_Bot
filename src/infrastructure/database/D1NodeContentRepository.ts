@@ -17,6 +17,7 @@ interface NodeContentRow {
   caption: string | null;
   sort_order: number;
   is_forwarded?: number;
+  vault_message_id?: number | null;
   created_at: string;
 }
 
@@ -32,6 +33,10 @@ function mapRowToNodeContent(row: NodeContentRow): NodeContent {
     caption: row.caption,
     sortOrder: Number(row.sort_order),
     isForwarded: Number(row.is_forwarded ?? 0) === 1,
+    vaultMessageId:
+      row.vault_message_id !== undefined && row.vault_message_id !== null
+        ? Number(row.vault_message_id)
+        : null,
     createdAt: row.created_at,
   };
 }
@@ -60,11 +65,12 @@ export class D1NodeContentRepository implements INodeContentRepository {
     const row = await this.db
       .prepare(
         `INSERT INTO node_contents (
-          node_id, content_type, source_chat_id, source_message_id, file_id, title, caption, sort_order, is_forwarded
+          node_id, content_type, source_chat_id, source_message_id, file_id, title, caption, sort_order, is_forwarded, vault_message_id
         )
         VALUES (
           ?, ?, ?, ?, ?, ?, ?,
           COALESCE((SELECT MAX(sort_order) FROM node_contents WHERE node_id = ?), 0) + 1,
+          ?,
           ?
         )
         RETURNING *`
@@ -78,7 +84,8 @@ export class D1NodeContentRepository implements INodeContentRepository {
         input.title,
         input.caption ?? null,
         input.nodeId,
-        isForwardedInt
+        isForwardedInt,
+        input.vaultMessageId ?? null
       )
       .first<NodeContentRow>();
 
@@ -145,6 +152,17 @@ export class D1NodeContentRepository implements INodeContentRepository {
         "UPDATE node_contents SET source_chat_id = ?, source_message_id = ? WHERE id = ?"
       )
       .bind(sourceChatId, sourceMessageId, id)
+      .run();
+    TreeMemoryCache.invalidate();
+  }
+
+  async updateVaultMessageId(
+    id: number,
+    vaultMessageId: number
+  ): Promise<void> {
+    await this.db
+      .prepare("UPDATE node_contents SET vault_message_id = ? WHERE id = ?")
+      .bind(vaultMessageId, id)
       .run();
     TreeMemoryCache.invalidate();
   }

@@ -7,7 +7,8 @@ import { SystemLogger } from "./systemLogger";
  * Delivers files and messages with maximum throughput and speed:
  * - Forwarded content from educational channels is sent via forwardMessage to keep original attribution.
  * - Direct content from vault or admin is sent via copyMessage under the bot's name without headers.
- * - Triple fallback: If the original message is missing, delivers via cached file_id.
+ * - Fallback: If original message in the admin group is inaccessible, copies from vault channel under bot's name.
+ * - Ultimate fallback: If messages are deleted everywhere, delivers via cached file_id.
  */
 export async function deliverNodeContents(
   ctx: BotContext,
@@ -24,28 +25,41 @@ export async function deliverNodeContents(
 
     let delivered = false;
 
-    // Messages from the vault channel are always delivered via copyMessage
-    // to avoid displaying "Forwarded from [Vault Channel Name]" to students
     const isFromVault = Boolean(
       storageChannelId && item.sourceChatId === storageChannelId
     );
 
-    // 1. If content is forwarded and resides in the admin group (not vault), forward with original attribution
+    // 1. If content is forwarded and resides in the admin group, try forward with original attribution
     if (item.isForwarded && !isFromVault) {
       delivered = await tryForwardMessage(ctx, targetChatId, item);
     }
 
-    // 2. If from vault, not forwarded, or forwardMessage failed: copy directly under the bot's name
+    // 2. If from vault, not forwarded, or forwardMessage failed:
+    // Copy cleanly under the bot's name (stripping forward headers)
     if (!delivered) {
-      delivered = await tryCopyMessage(
-        ctx,
-        targetChatId,
-        item,
-        keyboardToAttach
-      );
+      // First try to copy from the permanent vault channel if vaultMessageId exists
+      if (storageChannelId && item.vaultMessageId) {
+        delivered = await tryCopyFromLocation(
+          ctx,
+          targetChatId,
+          storageChannelId,
+          item.vaultMessageId,
+          keyboardToAttach
+        );
+      }
+
+      // If still not delivered, try copying from original source location
+      if (!delivered) {
+        delivered = await tryCopyMessage(
+          ctx,
+          targetChatId,
+          item,
+          keyboardToAttach
+        );
+      }
     }
 
-    // 3. Fallback: If original message was deleted from the group/vault, deliver via file_id
+    // 3. Fallback: If original message was deleted everywhere, deliver via file_id
     if (!delivered) {
       await tryFallbackDelivery(ctx, targetChatId, item, keyboardToAttach);
     }
@@ -67,6 +81,30 @@ async function tryForwardMessage(
   } catch (err) {
     console.warn(
       `[ContentDelivery] forwardMessage failed for content #${item.id}, trying copyMessage fallback:`,
+      err
+    );
+    return false;
+  }
+}
+
+async function tryCopyFromLocation(
+  ctx: BotContext,
+  targetChatId: number | string,
+  fromChatId: string | number,
+  fromMessageId: number,
+  replyKeyboard?: Keyboard
+): Promise<boolean> {
+  try {
+    await ctx.api.copyMessage(
+      targetChatId,
+      fromChatId,
+      fromMessageId,
+      replyKeyboard ? { reply_markup: replyKeyboard } : undefined
+    );
+    return true;
+  } catch (err) {
+    console.warn(
+      `[ContentDelivery] copyFromLocation failed for chat ${fromChatId} msg ${fromMessageId}:`,
       err
     );
     return false;

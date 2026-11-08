@@ -274,22 +274,20 @@ protectedAdmin.command("sync_vault", async (ctx) => {
   }
 
   const allContents = await ctx.services.contentAdmin.getAllContents();
-  const directContents = allContents.filter((c) => !c.isForwarded);
-  const pending = directContents.filter(
-    (c) => c.sourceChatId !== storageChannelId
-  );
-  const alreadyInVault = directContents.length - pending.length;
+  const directCount = allContents.filter((c) => !c.isForwarded).length;
+  const forwardedCount = allContents.filter((c) => c.isForwarded).length;
+  const pending = allContents.filter((c) => !c.vaultMessageId);
+  const alreadyInVault = allContents.length - pending.length;
   const percent =
-    directContents.length > 0
-      ? Math.round((alreadyInVault / directContents.length) * 100)
+    allContents.length > 0
+      ? Math.round((alreadyInVault / allContents.length) * 100)
       : 100;
 
   if (pending.length === 0) {
     await ctx.reply(
-      `✅ <b>جميع ملفات البوت المباشرة (${directContents.length} ملف) مؤمنة ومربوطة بالفعل داخل قناة المستودع الدائم بنسبة 100%!</b>\n\n` +
-        `• الملفات المحولة بالاسم الأصلي: <b>${
-          allContents.length - directContents.length
-        }</b> ملف (تصل للطلاب باسم قنواتها الأصلية ↗️).`,
+      `✅ <b>جميع ملفات البوت (${allContents.length} ملف) مؤمنة ومربوطة بالفعل داخل قناة المستودع الدائم بنسبة 100%!</b>\n\n` +
+        `• ملفات مباشرة: <b>${directCount}</b> (تصل باسم البوت 🤖)\n` +
+        `• ملفات محولة: <b>${forwardedCount}</b> (تصل باسم المصدر الأصلي ↗️ مع حفظ نسخة بالأرشيف).`,
       { parse_mode: "HTML" }
     );
     return;
@@ -299,21 +297,20 @@ protectedAdmin.command("sync_vault", async (ctx) => {
   const progressBar = "🟩".repeat(filledBlocks) + "⬜".repeat(5 - filledBlocks);
 
   const kb = new InlineKeyboard()
-    .text(`🚀 بدء المزامنة التلقائية للأرشيف`, "a:vault_start:0")
+    .text(`🚀 بدء المزامنة والتأمين الشامل`, "a:vault_start:0")
     .row();
 
   await ctx.reply(
     `📦 <b>نظام مزامنة وتأمين الملفات في قناة المستودع الدائم</b>\n\n` +
       `📊 <b>الحالة الحالية للأرشيف:</b>\n` +
       `[${progressBar}] <b>${percent}%</b>\n\n` +
-      `• ملفات البوت المباشرة: <b>${directContents.length}</b> (تصل باسم البوت)\n` +
-      `• الملفات المحولة بالاسم الأصلي: <b>${
-        allContents.length - directContents.length
-      }</b> (تصل باسم قنواتها الأصلية ↗️)\n` +
+      `• إجمالي ملفات البوت: <b>${allContents.length}</b> ملف\n` +
+      `• ملفات مباشرة: <b>${directCount}</b> (تصل باسم البوت 🤖)\n` +
+      `• ملفات محولة: <b>${forwardedCount}</b> (تصل باسم المصدر الأصلي ↗️)\n` +
       `• مؤمنة في المستودع مسبقاً: <b>${alreadyInVault}</b> ✅\n` +
-      `• المتبقي لنقلها: <b>${pending.length}</b> ⏳\n` +
+      `• المتبقي لنقلها وتأمينها: <b>${pending.length}</b> ⏳\n` +
       `• قناة المستودع الهدف: <code>${storageChannelId}</code>\n\n` +
-      `💡 <i>تتم المعالجة مع تحديث مباشر لشريط التقارير الحية في توبيك السجلات.</i>\n\n` +
+      `💡 <i>سيتم تأمين كل الملفات في القناة كنسخة دائمة، مع الحفاظ الكامل على اسم الأستاذ/القناة الأصلية عند تسليم المحول.</i>\n\n` +
       `اضغط الزر بالأسفل للبدء 👇`,
     { parse_mode: "HTML", reply_markup: kb }
   );

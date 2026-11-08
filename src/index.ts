@@ -248,7 +248,7 @@ export default {
       const contentRepo = new D1NodeContentRepository(env.DB);
       const contentAdmin = new ContentAdminService(nodeRepo, contentRepo);
 
-      // Quietly mirror pending direct files in batches
+      // Quietly mirror pending files in batches
       const result = await VaultSyncRunner.runBatch(
         bot.api,
         env,

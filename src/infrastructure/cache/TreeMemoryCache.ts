@@ -27,6 +27,7 @@ interface NodeContentRow {
   caption: string | null;
   sort_order: number;
   is_forwarded?: number;
+  vault_message_id?: number | null;
   created_at: string;
 }
 
@@ -114,6 +115,10 @@ export class TreeMemoryCache {
         caption: row.caption,
         sortOrder: Number(row.sort_order),
         isForwarded: Number(row.is_forwarded ?? 0) === 1,
+        vaultMessageId:
+          row.vault_message_id !== undefined && row.vault_message_id !== null
+            ? Number(row.vault_message_id)
+            : null,
         createdAt: row.created_at,
       };
       contentsById.set(item.id, item);

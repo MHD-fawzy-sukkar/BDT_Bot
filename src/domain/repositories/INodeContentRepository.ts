@@ -13,6 +13,10 @@ export interface INodeContentRepository {
     sourceChatId: string,
     sourceMessageId: number
   ): Promise<void>;
+  updateVaultMessageId(
+    id: number,
+    vaultMessageId: number
+  ): Promise<void>;
   updateSourceLocationsBatch(
     items: { id: number; sourceChatId: string; sourceMessageId: number }[]
   ): Promise<void>;

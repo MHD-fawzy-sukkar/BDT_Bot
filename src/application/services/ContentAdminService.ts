@@ -40,6 +40,13 @@ export class ContentAdminService {
     );
   }
 
+  async updateVaultMessageId(
+    id: number,
+    vaultMessageId: number
+  ): Promise<void> {
+    await this.contentRepo.updateVaultMessageId(id, vaultMessageId);
+  }
+
   async updateContentSourcesBatch(
     items: { id: number; sourceChatId: string; sourceMessageId: number }[]
   ): Promise<void> {
