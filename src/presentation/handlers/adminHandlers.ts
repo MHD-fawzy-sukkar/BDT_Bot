@@ -274,15 +274,22 @@ protectedAdmin.command("sync_vault", async (ctx) => {
   }
 
   const allContents = await ctx.services.contentAdmin.getAllContents();
-  const pending = allContents.filter(
+  const directContents = allContents.filter((c) => !c.isForwarded);
+  const pending = directContents.filter(
     (c) => c.sourceChatId !== storageChannelId
   );
-  const alreadyInVault = allContents.length - pending.length;
-  const percent = Math.round((alreadyInVault / allContents.length) * 100);
+  const alreadyInVault = directContents.length - pending.length;
+  const percent =
+    directContents.length > 0
+      ? Math.round((alreadyInVault / directContents.length) * 100)
+      : 100;
 
   if (pending.length === 0) {
     await ctx.reply(
-      `✅ <b>جميع ملفات البوت (${allContents.length} ملف) مؤمنة ومربوطة بالفعل داخل قناة المستودع الدائم بنسبة 100%!</b>`,
+      `✅ <b>جميع ملفات البوت المباشرة (${directContents.length} ملف) مؤمنة ومربوطة بالفعل داخل قناة المستودع الدائم بنسبة 100%!</b>\n\n` +
+        `• الملفات المحولة بالاسم الأصلي: <b>${
+          allContents.length - directContents.length
+        }</b> ملف (تصل للطلاب باسم قنواتها الأصلية ↗️).`,
       { parse_mode: "HTML" }
     );
     return;
@@ -299,8 +306,11 @@ protectedAdmin.command("sync_vault", async (ctx) => {
     `📦 <b>نظام مزامنة وتأمين الملفات في قناة المستودع الدائم</b>\n\n` +
       `📊 <b>الحالة الحالية للأرشيف:</b>\n` +
       `[${progressBar}] <b>${percent}%</b>\n\n` +
-      `• إجمالي الملفات في البوت: <b>${allContents.length}</b>\n` +
-      `• مؤمنة في المستودع مسبقاً: <b>${alreadyInVault}</b> ✅ <i>(لن تُعاد أبداً)</i>\n` +
+      `• ملفات البوت المباشرة: <b>${directContents.length}</b> (تصل باسم البوت)\n` +
+      `• الملفات المحولة بالاسم الأصلي: <b>${
+        allContents.length - directContents.length
+      }</b> (تصل باسم قنواتها الأصلية ↗️)\n` +
+      `• مؤمنة في المستودع مسبقاً: <b>${alreadyInVault}</b> ✅\n` +
       `• المتبقي لنقلها: <b>${pending.length}</b> ⏳\n` +
       `• قناة المستودع الهدف: <code>${storageChannelId}</code>\n\n` +
       `💡 <i>تتم المعالجة مع تحديث مباشر لشريط التقارير الحية في توبيك السجلات.</i>\n\n` +

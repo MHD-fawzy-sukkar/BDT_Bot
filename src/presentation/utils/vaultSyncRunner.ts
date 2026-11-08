@@ -36,17 +36,20 @@ export class VaultSyncRunner {
     }
 
     const allContents = await contentAdmin.getAllContents();
-    const pending = allContents.filter(
+    // الملفات المعنية بالتأمين في قناة المستودع هي الملفات المباشرة (التي تخرج باسم البوت)
+    // أما الملفات المحولة (is_forwarded) فتبقى مربوطة بالغروب لتخرج للطلاب دائماً باسم القناة الأصلية
+    const targetContents = allContents.filter((c) => !c.isForwarded);
+    const pending = targetContents.filter(
       (c) => c.sourceChatId !== storageChannelId
     );
 
-    const alreadyInVault = allContents.length - pending.length;
+    const alreadyInVault = targetContents.length - pending.length;
 
     if (pending.length === 0) {
       return {
-        total: allContents.length,
+        total: targetContents.length,
         transferredInThisStep: 0,
-        totalTransferred: allContents.length,
+        totalTransferred: targetContents.length,
         remaining: 0,
         percent: 100,
         progressBar: "🟩".repeat(5),
@@ -144,9 +147,9 @@ export class VaultSyncRunner {
         // تحديث حي للمستخدم على واجهة تيلغرام كل 3 ملفات أو عند نهاية الدفعة
         if (onProgress && ((i + 1) % 3 === 0 || i === currentBatch.length - 1)) {
           const curTransferred = alreadyInVault + transferredInThisStep;
-          const curRemaining = allContents.length - curTransferred;
+          const curRemaining = targetContents.length - curTransferred;
           const curPercent = Math.round(
-            (curTransferred / allContents.length) * 100
+            (curTransferred / targetContents.length) * 100
           );
           const curBlocks = Math.round((curPercent / 100) * 5);
           const curProgressBar =
@@ -155,7 +158,7 @@ export class VaultSyncRunner {
           try {
             await onProgress({
               transferred: curTransferred,
-              total: allContents.length,
+              total: targetContents.length,
               remaining: curRemaining,
               percent: curPercent,
               progressBar: curProgressBar,
@@ -174,8 +177,10 @@ export class VaultSyncRunner {
     }
 
     const totalTransferred = alreadyInVault + transferredInThisStep;
-    const remaining = allContents.length - totalTransferred;
-    const percent = Math.round((totalTransferred / allContents.length) * 100);
+    const remaining = targetContents.length - totalTransferred;
+    const percent = Math.round(
+      (totalTransferred / targetContents.length) * 100
+    );
 
     // شريط تقدم مقتضب وجميل (5 خانات) يناسب شاشات الهواتف دون تشويه السطور
     const filledBlocks = Math.round((percent / 100) * 5);
@@ -190,7 +195,7 @@ export class VaultSyncRunner {
         "مزامنة دفعة أرشيف",
         `📦 <b>تم نقل وتأمين دفعة جديدة (${transferredInThisStep} ملف):</b>\n\n` +
           `• شريط الإنجاز: [${progressBar}] <b>${percent}%</b>\n` +
-          `• المنقول والمؤمن في المستودع: <b>${totalTransferred} / ${allContents.length}</b>\n` +
+          `• المنقول والمؤمن في المستودع: <b>${totalTransferred} / ${targetContents.length}</b>\n` +
           `• المتبقي: <b>${remaining}</b> ملف`
       );
     }
@@ -200,12 +205,12 @@ export class VaultSyncRunner {
         api,
         env,
         "اكتملت مزامنة الأرشيف بالكامل",
-        `🎉 <b>تم بحمد الله نقل وتأمين جميع ملفات البوت بالكامل (${allContents.length} ملف) داخل قناة المستودع الدائم بنسبة 100%!</b>`
+        `🎉 <b>تم بحمد الله نقل وتأمين جميع ملفات البوت المباشرة (${targetContents.length} ملف) داخل قناة المستودع الدائم بنسبة 100%!</b>`
       );
     }
 
     return {
-      total: allContents.length,
+      total: targetContents.length,
       transferredInThisStep,
       totalTransferred,
       remaining,
