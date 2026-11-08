@@ -1,4 +1,4 @@
-# 🎓 بوت منصة فريق حلم البكالوريا التعليمي (BDT Telegram Bot)
+# 🎓 بوت منصة فريق الحلم البكالوريا التعليمي (BDT Telegram Bot)
 
 > **نظام سحابي عالي الأداء لإدارة وتنظيم وتسليم المحتوى التعليمي، مبني بالكامل على حافة الشبكة (Serverless Edge Computing) باستخدام TypeScript و grammY وقاعدة بيانات Cloudflare D1 وفق مبادئ العمارة النظيفة (Clean Architecture).**
 
