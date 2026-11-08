@@ -195,8 +195,8 @@ export class VaultSyncRunner {
           }
         }
 
-        // Rate limiting buffer: 200ms delay between Telegram API calls
-        await new Promise((resolve) => setTimeout(resolve, 200));
+        // Rate limiting buffer: 120ms delay between Telegram API calls
+        await new Promise((resolve) => setTimeout(resolve, 120));
       } catch (itemErr) {
         failedCount++;
         console.warn(`[VaultSyncRunner] Failed item #${item.id}:`, itemErr);

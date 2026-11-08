@@ -22,6 +22,7 @@ import { adminGuard } from "../middlewares/adminGuard";
 import { deliverNodeContents } from "../utils/contentDelivery";
 import { SystemLogger } from "../utils/systemLogger";
 import { formatTelegramEntitiesToHtml, safeEditOrReply, tryDeleteMessage } from "../utils/telegramUi";
+import { VaultSyncRunner } from "../utils/vaultSyncRunner";
 
 export const adminHandlers = new Composer<BotContext>();
 
@@ -366,19 +367,93 @@ protectedAdmin.callbackQuery(/^a:vault_start:(\d+)$/, async (ctx) => {
     true
   );
 
-  // 3. Trigger asynchronous background chain
-  const originUrl =
-    ctx.env.WORKER_URL ||
-    "https://bdt-telegram-bot.fawzy-sukkar2005.workers.dev";
+  // 3. Trigger asynchronous background loop
   const chatId = ctx.chat?.id;
-  const syncUrl = `${originUrl}/api/sync-vault-step?key=bdt_sync_vault_2026&chatId=${chatId}&msgId=${msgId}&origin=${encodeURIComponent(
-    originUrl
-  )}&batch=25`;
-
   ctx.runInBackground(
-    fetch(syncUrl, { method: "POST" }).catch((err) =>
-      console.error("[AdminHandler] Failed to trigger background sync step:", err)
-    )
+    (async () => {
+      let isComplete = false;
+      const batchSize = 30;
+
+      while (!isComplete) {
+        // Check if user cancelled sync
+        const session = await ctx.services.menuAdmin.getSession(
+          "SYSTEM_VAULT_SYNC",
+          "GLOBAL"
+        );
+        if (session?.action !== "VAULT_SYNC_RUNNING") {
+          console.log("[VaultSync] Background loop stopped: user requested cancellation");
+          break;
+        }
+
+        // Run batch of 30 files
+        const result = await VaultSyncRunner.runBatch(
+          ctx.api,
+          ctx.env,
+          ctx.services.contentAdmin,
+          batchSize,
+          undefined,
+          async () => {
+            const check = await ctx.services.menuAdmin.getSession(
+              "SYSTEM_VAULT_SYNC",
+              "GLOBAL"
+            );
+            return check?.action !== "VAULT_SYNC_RUNNING";
+          }
+        );
+
+        if (result.transferredInThisStep === 0 && !result.isComplete) {
+          console.warn("[VaultSync] No items transferred in batch, ending loop");
+          break;
+        }
+
+        // Update Telegram UI message after each batch
+        if (msgId && chatId) {
+          if (result.isComplete) {
+            isComplete = true;
+            await ctx.api
+              .editMessageText(
+                chatId,
+                msgId,
+                `🎉 <b>اكتملت مزامنة وتأمين كامل الأرشيف (${result.total} ملف) بنجاح 100%!</b>\n\n` +
+                  `[🟩🟩🟩🟩🟩] 100%\n\n` +
+                  `✅ جميع الملفات (المباشرة والمحولة) أصبحت ثابتة ومحمية داخل قناة المستودع الدائم للأبد.`,
+                { parse_mode: "HTML" }
+              )
+              .catch((err) => console.warn("[VaultSync] Edit complete err:", err));
+
+            await ctx.services.menuAdmin.setSession(
+              "SYSTEM_VAULT_SYNC",
+              "GLOBAL",
+              "IDLE",
+              null,
+              null
+            );
+          } else {
+            const currentStopKb = new InlineKeyboard().text(
+              "🛑 إيقاف المزامنة",
+              "a:vault_stop"
+            );
+            await ctx.api
+              .editMessageText(
+                chatId,
+                msgId,
+                `⏳ <b>جاري نقل وتأمين الأرشيف في قناة المستودع...</b>\n\n` +
+                  `[${result.progressBar}] <b>${result.percent}%</b>\n\n` +
+                  `• تم تأمين: <b>${result.totalTransferred} / ${result.total}</b> ملف\n` +
+                  `• المتبقي: <b>${result.remaining}</b> ملف\n\n` +
+                  `🔄 <i>المزامنة تعمل الآن تلقائياً بالكامل في الخلفية...</i>\n` +
+                  `<i>(يتم إرسال تقارير دورية في توبيك السجلات)</i>`,
+                { parse_mode: "HTML", reply_markup: currentStopKb }
+              )
+              .catch((err) => console.warn("[VaultSync] Edit progress err:", err));
+          }
+        }
+
+        if (result.isComplete) {
+          break;
+        }
+      }
+    })()
   );
 });
 

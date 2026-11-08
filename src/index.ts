@@ -69,11 +69,6 @@ export default {
 
       const chatId = url.searchParams.get("chatId");
       const msgId = url.searchParams.get("msgId");
-      const originUrl =
-        url.searchParams.get("origin") ||
-        env.WORKER_URL ||
-        url.origin ||
-        "https://bdt-telegram-bot.fawzy-sukkar2005.workers.dev";
       const batchSize = Number(url.searchParams.get("batch")) || 25;
 
       // If called with chatId and msgId, process in background and chain steps automatically
@@ -91,107 +86,99 @@ export default {
               );
               const menuAdmin = new MenuAdminService(nodeRepo, sessionRepo);
 
-              // 1. Check if user cancelled sync
-              const session = await menuAdmin.getSession(
-                "SYSTEM_VAULT_SYNC",
-                "GLOBAL"
-              );
-              if (session?.action !== "VAULT_SYNC_RUNNING") {
-                console.log(
-                  "[SyncVault] Sync aborted: session is not RUNNING"
-                );
-                return;
-              }
-
-              // 2. Run batch
-              const result = await VaultSyncRunner.runBatch(
-                bot.api,
-                env,
-                contentAdmin,
-                batchSize,
-                undefined,
-                async () => {
-                  const check = await menuAdmin.getSession(
-                    "SYSTEM_VAULT_SYNC",
-                    "GLOBAL"
-                  );
-                  return check?.action !== "VAULT_SYNC_RUNNING";
-                }
-              );
-
-              // 3. Check again if cancelled during batch execution
-              const postCheck = await menuAdmin.getSession(
-                "SYSTEM_VAULT_SYNC",
-                "GLOBAL"
-              );
-              if (postCheck?.action !== "VAULT_SYNC_RUNNING") {
-                console.log(
-                  "[SyncVault] Sync aborted mid-batch by user cancellation"
-                );
-                return;
-              }
-
-              const numChatId = Number(chatId) || chatId;
-              const numMsgId = Number(msgId);
-
-              if (result.isComplete) {
-                // All items completed!
-                await bot.api
-                  .editMessageText(
-                    numChatId,
-                    numMsgId,
-                    `🎉 <b>اكتملت مزامنة وتأمين كامل الأرشيف (${result.total} ملف) بنجاح 100%!</b>\n\n` +
-                      `[🟩🟩🟩🟩🟩] 100%\n\n` +
-                      `✅ جميع الملفات (المباشرة والمحولة) أصبحت ثابتة ومحمية داخل قناة المستودع الدائم للأبد.`,
-                    { parse_mode: "HTML" }
-                  )
-                  .catch((err) =>
-                    console.warn(
-                      "[SyncVault] Error updating complete message:",
-                      err
-                    )
-                  );
-
-                await menuAdmin.setSession(
+              let isComplete = false;
+              while (!isComplete) {
+                // 1. Check if user cancelled sync
+                const session = await menuAdmin.getSession(
                   "SYSTEM_VAULT_SYNC",
-                  "GLOBAL",
-                  "IDLE",
-                  null,
-                  null
+                  "GLOBAL"
                 );
-              } else {
-                // Update UI once per batch with current status
-                const stopKb = new InlineKeyboard().text(
-                  "🛑 إيقاف المزامنة",
-                  "a:vault_stop"
-                );
-                await bot.api
-                  .editMessageText(
-                    numChatId,
-                    numMsgId,
-                    `⏳ <b>جاري نقل وتأمين الأرشيف في المستودع...</b>\n\n` +
-                      `[${result.progressBar}] <b>${result.percent}%</b>\n\n` +
-                      `• تم تأمين: <b>${result.totalTransferred} / ${result.total}</b> ملف\n` +
-                      `• المتبقي: <b>${result.remaining}</b> ملف\n\n` +
-                      `🔄 <i>المزامنة مستمرة تلقائياً في الخلفية دفعة تلو الأخرى...</i>\n` +
-                      `<i>(يتم إرسال تقارير دورية في توبيك السجلات)</i>`,
-                    { parse_mode: "HTML", reply_markup: stopKb }
-                  )
-                  .catch((err) =>
-                    console.warn(
-                      "[SyncVault] Error updating progress message:",
-                      err
-                    )
+                if (session?.action !== "VAULT_SYNC_RUNNING") {
+                  console.log(
+                    "[SyncVault] Sync aborted: session is not RUNNING"
                   );
+                  break;
+                }
 
-                // 4. Chain next step via fetch
-                const nextStepUrl = `${originUrl}/api/sync-vault-step?key=bdt_sync_vault_2026&chatId=${chatId}&msgId=${msgId}&origin=${encodeURIComponent(
-                  originUrl
-                )}&batch=${batchSize}`;
-
-                await fetch(nextStepUrl, { method: "POST" }).catch((err) =>
-                  console.error("[SyncVault] Error calling next step:", err)
+                // 2. Run batch
+                const result = await VaultSyncRunner.runBatch(
+                  bot.api,
+                  env,
+                  contentAdmin,
+                  batchSize,
+                  undefined,
+                  async () => {
+                    const check = await menuAdmin.getSession(
+                      "SYSTEM_VAULT_SYNC",
+                      "GLOBAL"
+                    );
+                    return check?.action !== "VAULT_SYNC_RUNNING";
+                  }
                 );
+
+                if (result.transferredInThisStep === 0 && !result.isComplete) {
+                  console.warn("[SyncVault] No items transferred in batch, ending loop");
+                  break;
+                }
+
+                const numChatId = Number(chatId) || chatId;
+                const numMsgId = Number(msgId);
+
+                if (result.isComplete) {
+                  // All items completed!
+                  isComplete = true;
+                  await bot.api
+                    .editMessageText(
+                      numChatId,
+                      numMsgId,
+                      `🎉 <b>اكتملت مزامنة وتأمين كامل الأرشيف (${result.total} ملف) بنجاح 100%!</b>\n\n` +
+                        `[🟩🟩🟩🟩🟩] 100%\n\n` +
+                        `✅ جميع الملفات (المباشرة والمحولة) أصبحت ثابتة ومحمية داخل قناة المستودع الدائم للأبد.`,
+                      { parse_mode: "HTML" }
+                    )
+                    .catch((err) =>
+                      console.warn(
+                        "[SyncVault] Error updating complete message:",
+                        err
+                      )
+                    );
+
+                  await menuAdmin.setSession(
+                    "SYSTEM_VAULT_SYNC",
+                    "GLOBAL",
+                    "IDLE",
+                    null,
+                    null
+                  );
+                } else {
+                  // Update UI once per batch with current status
+                  const stopKb = new InlineKeyboard().text(
+                    "🛑 إيقاف المزامنة",
+                    "a:vault_stop"
+                  );
+                  await bot.api
+                    .editMessageText(
+                      numChatId,
+                      numMsgId,
+                      `⏳ <b>جاري نقل وتأمين الأرشيف في المستودع...</b>\n\n` +
+                        `[${result.progressBar}] <b>${result.percent}%</b>\n\n` +
+                        `• تم تأمين: <b>${result.totalTransferred} / ${result.total}</b> ملف\n` +
+                        `• المتبقي: <b>${result.remaining}</b> ملف\n\n` +
+                        `🔄 <i>المزامنة تعمل الآن تلقائياً بالكامل في الخلفية...</i>\n` +
+                        `<i>(يتم إرسال تقارير دورية في توبيك السجلات)</i>`,
+                      { parse_mode: "HTML", reply_markup: stopKb }
+                    )
+                    .catch((err) =>
+                      console.warn(
+                        "[SyncVault] Error updating progress message:",
+                        err
+                      )
+                    );
+                }
+
+                if (result.isComplete) {
+                  break;
+                }
               }
             } catch (bgErr) {
               console.error("[SyncVault] Background error:", bgErr);
