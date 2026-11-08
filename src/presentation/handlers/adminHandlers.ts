@@ -372,7 +372,7 @@ protectedAdmin.callbackQuery(/^a:vault_start:(\d+)$/, async (ctx) => {
   ctx.runInBackground(
     (async () => {
       let isComplete = false;
-      const batchSize = 30;
+      const batchSize = 15;
 
       while (!isComplete) {
         // Check if user cancelled sync

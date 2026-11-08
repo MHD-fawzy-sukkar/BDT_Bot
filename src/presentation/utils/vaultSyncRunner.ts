@@ -158,15 +158,6 @@ export class VaultSyncRunner {
         // Persist mirrored message ID in vault channel
         if (newMsgId) {
           await contentAdmin.updateVaultMessageId(item.id, newMsgId);
-
-          // For direct files, also update source_chat_id to point directly to vault channel
-          if (!item.isForwarded) {
-            await contentAdmin.updateContentSource(
-              item.id,
-              storageChannelId,
-              newMsgId
-            );
-          }
           transferredInThisStep++;
         } else {
           failedCount++;
@@ -195,8 +186,8 @@ export class VaultSyncRunner {
           }
         }
 
-        // Rate limiting buffer: 120ms delay between Telegram API calls
-        await new Promise((resolve) => setTimeout(resolve, 120));
+        // Rate limiting buffer: 850ms delay between Telegram API calls to prevent 429 rate limits
+        await new Promise((resolve) => setTimeout(resolve, 850));
       } catch (itemErr) {
         failedCount++;
         console.warn(`[VaultSyncRunner] Failed item #${item.id}:`, itemErr);

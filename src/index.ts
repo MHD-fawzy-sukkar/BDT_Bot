@@ -69,10 +69,11 @@ export default {
 
       const chatId = url.searchParams.get("chatId");
       const msgId = url.searchParams.get("msgId");
-      const batchSize = Number(url.searchParams.get("batch")) || 25;
+      const batchSize = Number(url.searchParams.get("batch")) || 15;
+      const isSyncMode = url.searchParams.get("sync") === "true";
 
-      // If called with chatId and msgId, process in background and chain steps automatically
-      if (chatId && msgId) {
+      // If called with chatId and msgId and not in explicit sync mode, process in background
+      if (chatId && msgId && !isSyncMode) {
         executionCtx.waitUntil(
           (async () => {
             try {
@@ -211,6 +212,41 @@ export default {
           contentAdmin,
           batchSize
         );
+
+        if (chatId && msgId) {
+          const numChatId = Number(chatId) || chatId;
+          const numMsgId = Number(msgId);
+          if (result.isComplete) {
+            await bot.api
+              .editMessageText(
+                numChatId,
+                numMsgId,
+                `🎉 <b>اكتملت مزامنة وتأمين كامل الأرشيف (${result.total} ملف) بنجاح 100%!</b>\n\n` +
+                  `[🟩🟩🟩🟩🟩] 100%\n\n` +
+                  `✅ جميع الملفات (المباشرة والمحولة) أصبحت ثابتة ومحمية داخل قناة المستودع الدائم للأبد.`,
+                { parse_mode: "HTML" }
+              )
+              .catch(() => undefined);
+          } else {
+            const stopKb = new InlineKeyboard().text(
+              "🛑 إيقاف المزامنة",
+              "a:vault_stop"
+            );
+            await bot.api
+              .editMessageText(
+                numChatId,
+                numMsgId,
+                `⏳ <b>جاري نقل وتأمين الأرشيف في المستودع...</b>\n\n` +
+                  `[${result.progressBar}] <b>${result.percent}%</b>\n\n` +
+                  `• تم تأمين: <b>${result.totalTransferred} / ${result.total}</b> ملف\n` +
+                  `• المتبقي: <b>${result.remaining}</b> ملف\n\n` +
+                  `🔄 <i>المزامنة تعمل الآن تلقائياً بالكامل في الخلفية...</i>\n` +
+                  `<i>(يتم إرسال تقارير دورية في توبيك السجلات)</i>`,
+                { parse_mode: "HTML", reply_markup: stopKb }
+              )
+              .catch(() => undefined);
+          }
+        }
 
         return new Response(JSON.stringify(result, null, 2), {
           status: 200,
