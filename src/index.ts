@@ -110,6 +110,7 @@ export default {
           secret_token: env.WEBHOOK_SECRET || undefined,
           allowed_updates: ["message", "callback_query"],
           drop_pending_updates: true,
+          ip_address: "104.21.44.4",
         });
 
         // تخصيص قائمة الأوامر: للطلاب في الخاص يظهر /start فقط، وللمشرفين في الغروبات تظهر أوامر الإدارة
