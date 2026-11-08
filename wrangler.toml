@@ -29,7 +29,7 @@ WORKER_URL = "https://bdt-telegram-bot.fawzy-sukkar2005.workers.dev"
 # Optional comma-separated admin user IDs; empty allows all admins in the admin group
 ADMIN_USER_IDS = ""
 
-# Automated daily Cron Trigger to sync direct files to the vault
-# Runs daily at 12:00 UTC (3:00 PM Damascus time UTC+3)
+# Automated Cron Triggers to quietly sync any new files into the vault
+# Runs at 00:00 UTC (3:00 AM Damascus time UTC+3) AND 12:00 UTC (3:00 PM Damascus time UTC+3)
 [triggers]
-crons = ["0 12 * * *"]
+crons = ["0 0 * * *", "0 12 * * *"]
