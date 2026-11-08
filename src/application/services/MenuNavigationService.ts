@@ -139,12 +139,12 @@ export class MenuNavigationService {
   }
 
   /**
-   * يبني خريطة شجرية نصية كاملة للبوت
+   * يبني خريطة هيكلية نصية كاملة لأقسام وقوائم البوت
    */
   async buildFullTreeOverview(): Promise<string> {
     const allNodes = await this.nodeRepo.findAllWithCounts();
     if (allNodes.length === 0) {
-      return "🌳 <b>شجرة البوت فارغة حالياً.</b>";
+      return "🗂️ <b>هيكلية البوت فارغة حالياً.</b>";
     }
 
     const childrenByParent = new Map<number | null, MenuNodeWithCounts[]>();
@@ -155,7 +155,7 @@ export class MenuNavigationService {
     }
 
     const lines: string[] = [
-      "🌳 <b>شجرة أزرار البوت</b>",
+      "🗂️ <b>خريطة أقسام وقوائم البوت</b>",
       "",
       "🤖 <b>القائمة الرئيسية</b>",
     ];
@@ -192,7 +192,7 @@ export class MenuNavigationService {
 
     const output = lines.join("\n");
     return output.length > 3900
-      ? output.slice(0, 3900) + "\n...\n<i>(تم اختصار الشجرة لكبر حجمها)</i>"
+      ? output.slice(0, 3900) + "\n...\n<i>(تم اختصار الخريطة لكبر حجمها)</i>"
       : output;
   }
 }

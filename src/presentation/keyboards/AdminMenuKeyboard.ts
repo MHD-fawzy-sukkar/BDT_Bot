@@ -258,7 +258,7 @@ export function buildStatsKeyboard(): InlineKeyboard {
 }
 
 export function buildTreeOverviewKeyboard(): InlineKeyboard {
-  return new InlineKeyboard().text("🔄 تحديث الشجرة", "a:tree");
+  return new InlineKeyboard().text("🔄 تحديث الهيكلية", "a:tree");
 }
 
 export function buildDeleteNodeConfirmKeyboard(nodeId: number): InlineKeyboard {

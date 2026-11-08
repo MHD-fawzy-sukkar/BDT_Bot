@@ -151,7 +151,7 @@ export default {
               },
               {
                 command: "tree",
-                description: "🌳 خريطة شجرة البوت الكاملة",
+                description: "🗂️ خريطة هيكلية أقسام البوت الكاملة",
               },
               {
                 command: "cancel",

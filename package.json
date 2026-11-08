@@ -2,7 +2,7 @@
   "name": "bdt-telegram-bot",
   "version": "1.0.0",
   "private": true,
-  "description": "Telegram Educational Tree Bot on Cloudflare Workers with Clean Architecture, grammY, and D1",
+  "description": "Telegram Educational Platform Bot on Cloudflare Workers with Clean Architecture, grammY, and D1",
   "main": "src/index.ts",
   "scripts": {
     "dev": "wrangler dev",
