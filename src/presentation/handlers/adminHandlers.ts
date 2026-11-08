@@ -154,27 +154,7 @@ protectedAdmin.callbackQuery("a:stats", async (ctx) => {
   );
 });
 
-// 5. Test logs topic connectivity (/test_logs)
-protectedAdmin.command("test_logs", async (ctx) => {
-  const adminGroupId = ctx.env.ADMIN_GROUP_ID?.trim();
-  const topicId = ctx.env.LOGS_TOPIC_ID?.trim();
-
-  if (!topicId) {
-    await ctx.reply("❌ لم يتم تحديد LOGS_TOPIC_ID في إعدادات السيرفر.");
-    return;
-  }
-
-  await SystemLogger.health(
-    ctx.api,
-    ctx.env,
-    "فحص الاتصال بتوبيك السجلات",
-    `✅ <b>توبيك السجلات متصل بنجاح!</b>\n\n• الغروب: <code>${adminGroupId}</code>\n• رقم التوبيك: <code>${topicId}</code>\n• التوقيت: <code>${new Date().toISOString()}</code>\n\nكافة تقارير الأعطال والمزامنة والنسخ الاحتياطي ستصل إلى هنا مباشرة.`
-  );
-
-  await ctx.reply("✅ تم إرسال رسالة فحص بنجاح إلى توبيك السجلات!");
-});
-
-// 5.1 Health and uptime check command (/health)
+// 5. Health and uptime check command (/health)
 protectedAdmin.command("health", async (ctx) => {
   const start = Date.now();
   const allContents = await ctx.services.contentAdmin.getAllContents();
@@ -182,9 +162,11 @@ protectedAdmin.command("health", async (ctx) => {
   const duration = Date.now() - start;
 
   const storageChannelId = ctx.env.STORAGE_CHANNEL_ID?.trim();
-  const inVault = storageChannelId
-    ? allContents.filter((c) => c.sourceChatId === storageChannelId).length
-    : 0;
+  const inVault = allContents.filter(
+    (c) =>
+      Boolean(c.vaultMessageId) ||
+      Boolean(storageChannelId && c.sourceChatId === storageChannelId)
+  ).length;
 
   const report =
     `🩺 <b>تقرير صحة واستقرار النظام (System Health):</b>\n\n` +
@@ -197,10 +179,6 @@ protectedAdmin.command("health", async (ctx) => {
     `• <b>التوقيت:</b> <code>${new Date().toISOString()}</code>`;
 
   await ctx.reply(report, { parse_mode: "HTML" });
-
-  ctx.runInBackground(
-    SystemLogger.health(ctx.api, ctx.env, "فحص صحة النظام (Health Check)", report)
-  );
 });
 
 // 6. Full database SQL backup command (/backup)

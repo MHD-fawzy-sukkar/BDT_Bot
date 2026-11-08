@@ -138,10 +138,6 @@ export default {
                 description: "🩺 فحص استقرار السيرفر وقاعدة البيانات",
               },
               {
-                command: "test_logs",
-                description: "🩺 فحص اتصال توبيك السجلات",
-              },
-              {
                 command: "broadcast",
                 description: "📢 إرسال إذاعة عامة للطلاب مع المعاينة",
               },
