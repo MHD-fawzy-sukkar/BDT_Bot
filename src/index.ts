@@ -397,7 +397,7 @@ export default {
 
   /**
    * Automated Cloudflare Cron Trigger.
-   * Runs daily at 00:00 UTC (3:00 AM Damascus time) and 12:00 UTC (3:00 PM Damascus time) to quietly sync any new files into the vault.
+   * Runs daily at 12:00 UTC (3:00 PM Damascus time) to quietly sync any new files into the vault.
    */
   async scheduled(
     _event: ScheduledEvent,

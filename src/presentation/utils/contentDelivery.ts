@@ -32,22 +32,6 @@ export async function deliverNodeContents(
     // 1. If content is forwarded and resides in the admin group, try forward with original attribution
     if (item.isForwarded && !isFromVault) {
       delivered = await tryForwardMessage(ctx, targetChatId, item);
-      // Telegram forwardMessage does not support reply_markup. If this is the last item and
-      // a keyboard was requested, deliver the keyboard prompt so navigation is never lost.
-      if (delivered && isLast && replyKeyboard) {
-        try {
-          await ctx.api.sendMessage(
-            targetChatId,
-            "⬇️ اختر من القائمة بالأسفل:",
-            { reply_markup: replyKeyboard }
-          );
-        } catch (kbErr) {
-          console.warn(
-            "[ContentDelivery] Failed to attach trailing reply keyboard for forwarded message:",
-            kbErr
-          );
-        }
-      }
     }
 
     // 2. If from vault, not forwarded, or forwardMessage failed:
