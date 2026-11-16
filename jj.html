@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+    <p>Hello World</p>
+</body>
+</html>
+
+
+network:
+  version: 2
+  ethernets:
+    enp0s3:
+      dhcp4: false
+      addresses:
+        - 192.168.88.50/24
+      routes:
+        - to: default
+          via: 192.168.88.1
+      nameservers:
+        addresses: [8.8.8.8, 8.8.4.4]
+
+
+LOG_FILE="/var/log/apache_recovery.log"
+TIMESTAMP=$(date "+%Y-%m-%d %H:%M:%S")
+
+# Check if localhost is responding to HTTP requests
+if ! curl -s --head  --request GET http://localhost | grep "200 OK" > /dev/null; then
+    echo "$TIMESTAMP - ERROR: Web service down. Restarting Apache..." >> "$LOG_FILE"
+    systemctl restart apache2
+    echo "$TIMESTAMP - SUCCESS: Service restarted." >> "$LOG_FILE"
+fi

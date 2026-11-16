@@ -8,6 +8,7 @@ interface ErrorThrottleItem {
 }
 
 const errorThrottleMap = new Map<string, ErrorThrottleItem>();
+const warnThrottleMap = new Map<string, ErrorThrottleItem>();
 const THROTTLE_WINDOW_MS = 60_000; // Anti-flood window: 1 minute
 
 export class SystemLogger {
@@ -28,7 +29,7 @@ export class SystemLogger {
   }
 
   /**
-   * Sends an operational warning message to the audit topic.
+   * Sends an operational warning message to the audit topic with anti-flood throttling.
    */
   static async warn(
     api: Api,
@@ -36,10 +37,27 @@ export class SystemLogger {
     title: string,
     message: string
   ): Promise<void> {
+    const shortKey = `${title}:${message.slice(0, 100)}`;
+    const now = Date.now();
+    const existing = warnThrottleMap.get(shortKey);
+
+    if (existing && now - existing.lastSent < THROTTLE_WINDOW_MS) {
+      existing.count++;
+      return; // Suppress notification to prevent flood
+    }
+
+    const previousCount = existing ? existing.count : 0;
+    warnThrottleMap.set(shortKey, { lastSent: now, count: 0 });
+
+    const suffix =
+      previousCount > 0
+        ? `\n\n🔁 <i>(تكرر هذا التنبيه ${previousCount} مرة خلال الدقيقة الماضية)</i>`
+        : "";
+
     await SystemLogger.sendToTopic(
       api,
       env,
-      `⚠️ <b>[تحذير تشغيلي] ${escapeHtml(title)}</b>\n\n${message}`
+      `⚠️ <b>[تحذير تشغيلي] ${escapeHtml(title)}</b>\n\n${message}${suffix}`
     );
   }
 

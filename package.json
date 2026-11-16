@@ -9,7 +9,8 @@
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
     "db:migrate:local": "wrangler d1 migrations apply bdt-bot-db-eu --local",
-    "db:migrate:remote": "wrangler d1 migrations apply bdt-bot-db-eu --remote"
+    "db:migrate:remote": "wrangler d1 migrations apply bdt-bot-db-eu --remote",
+    "export:users": ".\\.venv\\Scripts\\python scripts/export_users.py"
   },
   "dependencies": {
     "grammy": "^1.35.0"

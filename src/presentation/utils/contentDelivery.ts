@@ -3,6 +3,21 @@ import { NodeContent } from "../../domain/entities/NodeContent";
 import { BotContext } from "../context/BotContext";
 import { SystemLogger } from "./systemLogger";
 
+interface DeliveryAttemptResult {
+  readonly success: boolean;
+  readonly isRateLimited: boolean;
+}
+
+function isRateLimitError(err: unknown): boolean {
+  if (!err) return false;
+  const str = String(err);
+  return (
+    str.includes("429") ||
+    str.includes("Too Many Requests") ||
+    str.includes("retry after")
+  );
+}
+
 /**
  * Delivers files and messages with maximum throughput and speed:
  * - Forwarded content from educational channels is sent via forwardMessage to keep original attribution.
@@ -31,7 +46,11 @@ export async function deliverNodeContents(
 
     // 1. If content is forwarded and resides in the admin group, try forward with original attribution
     if (item.isForwarded && !isFromVault) {
-      delivered = await tryForwardMessage(ctx, targetChatId, item);
+      const res = await tryForwardMessage(ctx, targetChatId, item);
+      delivered = res.success;
+      if (res.isRateLimited) {
+        break; // Recipient chat is rate-limited; stop hammering Telegram
+      }
     }
 
     // 2. If from vault, not forwarded, or forwardMessage failed:
@@ -39,23 +58,31 @@ export async function deliverNodeContents(
     if (!delivered) {
       // First try to copy from the permanent vault channel if vaultMessageId exists
       if (storageChannelId && item.vaultMessageId) {
-        delivered = await tryCopyFromLocation(
+        const res = await tryCopyFromLocation(
           ctx,
           targetChatId,
           storageChannelId,
           item.vaultMessageId,
           keyboardToAttach
         );
+        delivered = res.success;
+        if (res.isRateLimited) {
+          break; // Recipient chat is rate-limited; stop hammering Telegram
+        }
       }
 
       // If still not delivered, try copying from original source location
       if (!delivered) {
-        delivered = await tryCopyMessage(
+        const res = await tryCopyMessage(
           ctx,
           targetChatId,
           item,
           keyboardToAttach
         );
+        delivered = res.success;
+        if (res.isRateLimited) {
+          break; // Recipient chat is rate-limited; stop hammering Telegram
+        }
       }
     }
 
@@ -70,20 +97,23 @@ async function tryForwardMessage(
   ctx: BotContext,
   targetChatId: number | string,
   item: NodeContent
-): Promise<boolean> {
+): Promise<DeliveryAttemptResult> {
   try {
     await ctx.api.forwardMessage(
       targetChatId,
       item.sourceChatId,
       item.sourceMessageId
     );
-    return true;
+    return { success: true, isRateLimited: false };
   } catch (err) {
-    console.warn(
-      `[ContentDelivery] forwardMessage failed for content #${item.id}, trying copyMessage fallback:`,
-      err
-    );
-    return false;
+    const rateLimited = isRateLimitError(err);
+    if (!rateLimited) {
+      console.warn(
+        `[ContentDelivery] forwardMessage failed for content #${item.id}, trying copyMessage fallback:`,
+        err
+      );
+    }
+    return { success: false, isRateLimited: rateLimited };
   }
 }
 
@@ -93,7 +123,7 @@ async function tryCopyFromLocation(
   fromChatId: string | number,
   fromMessageId: number,
   replyKeyboard?: Keyboard
-): Promise<boolean> {
+): Promise<DeliveryAttemptResult> {
   try {
     await ctx.api.copyMessage(
       targetChatId,
@@ -101,13 +131,16 @@ async function tryCopyFromLocation(
       fromMessageId,
       replyKeyboard ? { reply_markup: replyKeyboard } : undefined
     );
-    return true;
+    return { success: true, isRateLimited: false };
   } catch (err) {
-    console.warn(
-      `[ContentDelivery] copyFromLocation failed for chat ${fromChatId} msg ${fromMessageId}:`,
-      err
-    );
-    return false;
+    const rateLimited = isRateLimitError(err);
+    if (!rateLimited) {
+      console.warn(
+        `[ContentDelivery] copyFromLocation failed for chat ${fromChatId} msg ${fromMessageId}:`,
+        err
+      );
+    }
+    return { success: false, isRateLimited: rateLimited };
   }
 }
 
@@ -116,7 +149,7 @@ async function tryCopyMessage(
   targetChatId: number | string,
   item: NodeContent,
   replyKeyboard?: Keyboard
-): Promise<boolean> {
+): Promise<DeliveryAttemptResult> {
   try {
     await ctx.api.copyMessage(
       targetChatId,
@@ -124,13 +157,16 @@ async function tryCopyMessage(
       item.sourceMessageId,
       replyKeyboard ? { reply_markup: replyKeyboard } : undefined
     );
-    return true;
+    return { success: true, isRateLimited: false };
   } catch (err) {
-    console.warn(
-      `[ContentDelivery] copyMessage failed for content #${item.id}, trying file_id fallback:`,
-      err
-    );
-    return false;
+    const rateLimited = isRateLimitError(err);
+    if (!rateLimited) {
+      console.warn(
+        `[ContentDelivery] copyMessage failed for content #${item.id}, trying file_id fallback:`,
+        err
+      );
+    }
+    return { success: false, isRateLimited: rateLimited };
   }
 }
 

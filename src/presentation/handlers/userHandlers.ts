@@ -60,6 +60,9 @@ userHandlers.callbackQuery(/^u:nav:(\d+)$/, async (ctx) => {
   await handleStudentNodeSelection(ctx, String(ctx.from.id), nodeId);
 });
 
+// In-memory debounce map to discard accidental double-clicks and rapid button hammering (< 400ms)
+const userLastTapMap = new Map<string, number>();
+
 // 2. Handle reply keyboard button taps in student private chat
 userHandlers.on("message:text", async (ctx, next) => {
   if (ctx.chat.type !== "private") {
@@ -72,6 +75,12 @@ userHandlers.on("message:text", async (ctx, next) => {
   }
 
   const userId = String(ctx.from.id);
+  const now = Date.now();
+  const lastTap = userLastTapMap.get(userId) ?? 0;
+  if (now - lastTap < 400) {
+    return; // Drop rapid duplicate tap
+  }
+  userLastTapMap.set(userId, now);
 
   // A) Tap on "Home" button
   const cleanHome = text.replace(/[🏠🏡]/g, "").trim();

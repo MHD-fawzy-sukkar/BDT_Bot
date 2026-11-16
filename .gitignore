@@ -1,4 +1,6 @@
 node_modules/
+.venv/
+bot_users_arabic.xlsx
 dist/
 .wrangler/
 .dev.vars
