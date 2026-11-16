@@ -7,3 +7,6 @@ dist/
 .env
 *.log
 .DS_Store
+
+# Exported user data
+users_data.*

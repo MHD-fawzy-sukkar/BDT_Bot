@@ -434,6 +434,13 @@ def generate_pdf_via_html(rows):
     
     if os.path.exists(PDF_PATH) and os.path.getsize(PDF_PATH) > 0:
         print(f"Generated PDF successfully: {PDF_PATH} ({os.path.getsize(PDF_PATH)} bytes)")
+        # Clean up temporary HTML file so only final exports remain
+        try:
+            if os.path.exists(HTML_PATH):
+                os.remove(HTML_PATH)
+                print("Cleaned up temporary HTML template.")
+        except Exception:
+            pass
     else:
         raise RuntimeError("PDF generation failed: file is missing or empty.")
 
